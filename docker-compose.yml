@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - STEAM_API_KEY=${STEAM_API_KEY}
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/salesAllSales
+    depends_on:
+      - mongodb
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    networks:
+      - steam-network
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - steam-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  steam-network:
+    driver: bridge
