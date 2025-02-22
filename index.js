@@ -5,47 +5,27 @@ const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
-app.use(express.json());
-
-// Routes
-app.get('/api/games', async (req, res) => {
+app.get('/steam-games', async (req, res) => {
     try {
-        const steamApiKey = process.env.STEAM_API_KEY;
-        const response = await axios.get(`https://api.steampowered.com/ISteamApps/GetAppList/v2/?key=${steamApiKey}`);
+        const response = await axios.get(`https://api.steampowered.com/ISteamApps/GetAppList/v2/?key=${process.env.STEAM_API_KEY}`);
         
-        // Filter out games with empty names and test in the name
-        const filteredGames = {
-            applist: {
-                apps: response.data.applist.apps.filter(app => 
-                    app.name && 
-                    app.name.trim() !== '' && 
-                    !app.name.toLowerCase().includes('test')
-                )
-            }
-        };
-        
-        // Return the filtered games list
-        res.json(filteredGames);
-    } catch (error) {
-        console.error('Error fetching games:', error.message);
-        res.status(500).json({ 
-            error: 'Failed to fetch games',
-            message: error.message 
+        // Filter games: remove empty names and those containing 'test'
+        const filteredGames = response.data.applist.apps.filter(game => 
+            game.name && 
+            game.name.trim() !== '' && 
+            !game.name.toLowerCase().includes('test')
+        );
+
+        res.json({
+            total: filteredGames.length,
+            games: filteredGames
         });
+    } catch (error) {
+        console.error('Error fetching Steam games:', error.message);
+        res.status(500).json({ error: 'Error fetching Steam games' });
     }
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ 
-        error: 'Something went wrong!',
-        message: err.message
-    });
-});
-
-// Start server
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+    console.log(`Server running on port ${port}`);
 });
