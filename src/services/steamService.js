@@ -22,6 +22,8 @@ class SteamService {
                 const gameData = response.data[appid].data;
                 
                 if (['game', 'games', 'dlc', 'package'].includes(gameData.type)) {
+                    const priceData = this._processPriceData(gameData.price_overview);
+                    
                     return {
                         appid,
                         type: gameData.type,
@@ -34,7 +36,9 @@ class SteamService {
                         genres: (gameData.genres || []).map(g => g.description),
                         dlc: gameData.dlc || [],
                         header_image: gameData.header_image || '',
-                        website: gameData.website || ''
+                        website: gameData.website || '',
+                        price: priceData,
+                        price_overview: gameData.price_overview || null
                     };
                 }
             }
@@ -43,6 +47,20 @@ class SteamService {
             console.error(`Error fetching details for game ${appid}:`, error.message);
             return null;
         }
+    }
+
+    _processPriceData(priceOverview) {
+        if (!priceOverview) return null;
+
+        return {
+            currency: priceOverview.currency,
+            initial: priceOverview.initial ? priceOverview.initial / 100 : null,
+            final: priceOverview.final ? priceOverview.final / 100 : null,
+            discount_percent: priceOverview.discount_percent || 0,
+            initial_formatted: priceOverview.initial_formatted || '',
+            final_formatted: priceOverview.final_formatted || '',
+            lastChecked: new Date()
+        };
     }
 }
 
