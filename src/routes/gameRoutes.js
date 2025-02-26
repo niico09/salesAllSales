@@ -1,93 +1,55 @@
 const express = require('express');
 const router = express.Router();
-const gameService = require('../services/gameService');
-const steamService = require('../services/steamService');
+const searchService = require('../services/searchService');
+const { PAGINATION } = require('../config/constants');
 
-router.get('/steam-games', async (req, res) => {
+// Endpoint para buscar juegos con múltiples filtros
+router.get('/games', async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const pageSize = parseInt(req.query.pageSize) || 50;
-        
-        const steamGames = await steamService.getGamesList();
-        const missingGames = await gameService.findMissingGames(steamGames);
-        
-        if (missingGames.length > 0) {
-            console.log(`Encontrados ${missingGames.length} juegos nuevos. Guardando información básica...`);
-            await gameService.saveBasicInfo(missingGames);
-            console.log('Juegos nuevos guardados.');
-        } else {
-            console.log('No se encontraron juegos nuevos para guardar.');
-        }
+        const {
+            genre,
+            publisher,
+            developer,
+            initialLetter,
+            discountPercent,
+            minDiscount,
+            maxDiscount,
+            page = PAGINATION.DEFAULT_PAGE,
+            pageSize = PAGINATION.DEFAULT_PAGE_SIZE
+        } = req.query;
 
-        const totalGames = steamGames.length;
-        const startIndex = (page - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        
-        const results = await gameService.processGamesPage(steamGames, startIndex, endIndex);
-        const categorizedGames = gameService.categorizeGames(results);
-        const mongoStats = await gameService.getStats();
-        mongoStats.newGamesFound = missingGames.length;
-
-        res.json({
-            pagination: {
-                currentPage: page,
-                pageSize: pageSize,
-                totalGames: totalGames,
-                totalPages: Math.ceil(totalGames / pageSize)
-            },
-            total: Object.values(categorizedGames).flat().length,
-            categorizedGames,
-            mongoStats
-        });
-    } catch (error) {
-        console.error('Error fetching Steam games:', error.message);
-        res.status(500).json({ error: 'Error fetching Steam games' });
-    }
-});
-
-router.get('/check-differences', async (req, res) => {
-    try {
-        const steamGames = await steamService.getGamesList();
-        const dbGames = await Game.find({}, { appid: 1, name: 1, _id: 0 });
-        
-        const steamAppIds = new Set(steamGames.map(g => g.appid));
-        const dbAppIds = new Set(dbGames.map(g => g.appid));
-
-        const missingInDb = steamGames.filter(g => !dbAppIds.has(g.appid));
-        const extraInDb = dbGames.filter(g => !steamAppIds.has(g.appid));
-
-        res.json({
-            statistics: {
-                totalInSteam: steamGames.length,
-                totalInDb: dbGames.length,
-                missingInDb: missingInDb.length,
-                extraInDb: extraInDb.length
-            },
-            differences: {
-                missingInDb: missingInDb,
-                extraInDb: extraInDb
-            }
-        });
-    } catch (error) {
-        console.error('Error checking differences:', error.message);
-        res.status(500).json({ error: 'Error checking differences' });
-    }
-});
-
-router.get('/stored-games', async (req, res) => {
-    try {
-        const options = {
-            page: parseInt(req.query.page) || 1,
-            pageSize: parseInt(req.query.pageSize) || 50,
-            type: req.query.type,
-            withType: req.query.withType === 'true'
+        // Construimos el objeto de filtros
+        const filters = {
+            genre,
+            publisher,
+            developer,
+            initialLetter,
+            discountPercent,
+            minDiscount,
+            maxDiscount
         };
 
-        const result = await gameService.findStoredGames(options);
+        // Eliminamos los filtros undefined
+        Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
+
+        const result = await searchService.searchGames(filters, page, pageSize);
+
+        // Si se solicitan los valores únicos para los filtros
+        if (req.query.includeFilterOptions === 'true') {
+            result.filterOptions = {
+                genres: await searchService.getUniqueGenres(),
+                publishers: await searchService.getUniquePublishers(),
+                developers: await searchService.getUniqueDevelopers()
+            };
+        }
+
         res.json(result);
     } catch (error) {
-        console.error('Error fetching stored games:', error.message);
-        res.status(500).json({ error: 'Error fetching stored games' });
+        console.error('Error en la búsqueda de juegos:', error);
+        res.status(500).json({
+            message: 'Error al buscar juegos',
+            error: error.message
+        });
     }
 });
 

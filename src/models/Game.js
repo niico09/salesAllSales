@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { STEAM_TYPES } = require('../config/steamConstants');
 
 const priceOverviewSchema = new mongoose.Schema({
     currency: { type: String },
@@ -19,7 +20,22 @@ const priceSchema = new mongoose.Schema({
 
 const gameSchema = new mongoose.Schema({
     appid: { type: Number, required: true, unique: true },
-    type: { type: String, enum: ['game', 'games', 'dlc', 'package'], required: false },
+    type: { 
+        type: String, 
+        enum: Object.values(STEAM_TYPES), 
+        default: STEAM_TYPES.UNKNOWN,
+        index: true // Índice para búsquedas por tipo
+    },
+    isMainType: { 
+        type: Boolean, 
+        default: false,
+        index: true // Índice para filtrar rápidamente por tipos principales
+    },
+    is_free: {
+        type: Boolean,
+        default: false,
+        index: true // Índice para búsquedas rápidas de juegos gratuitos
+    },
     name: { type: String, required: true },
     required_age: { type: Number },
     developers: [String],
@@ -40,4 +56,13 @@ const gameSchema = new mongoose.Schema({
     lastUpdated: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('Game', gameSchema);
+// Índices para mejorar el rendimiento de las búsquedas
+gameSchema.index({ name: 1 });
+gameSchema.index({ 'price_overview.discount_percent': 1 });
+gameSchema.index({ genres: 1 });
+gameSchema.index({ publishers: 1 });
+gameSchema.index({ developers: 1 });
+
+const Game = mongoose.model('Game', gameSchema);
+
+module.exports = Game;

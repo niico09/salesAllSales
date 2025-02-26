@@ -1,9 +1,13 @@
 const axios = require('axios');
 const Game = require('../models/Game');
+const { STEAM_TYPES, STEAM_FILTERS } = require('../config/steamConstants');
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 class SteamService {
+    constructor() {
+    }
+
     async getGamesList() {
         const response = await axios.get(`https://api.steampowered.com/ISteamApps/GetAppList/v2/?key=${process.env.STEAM_API_KEY}`);
         return response.data.applist.apps.filter(game => 
@@ -16,35 +20,54 @@ class SteamService {
     async getGameDetails(appid, name) {
         try {
             await delay(1000);
-            const response = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appid}`);
+            const response = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us`);
             
-            if (response.data[appid] && response.data[appid].success) {
-                const gameData = response.data[appid].data;
-                
-                if (['game', 'games', 'dlc', 'package'].includes(gameData.type)) {
-                    const priceData = this._processPriceData(gameData.price_overview);
-                    
-                    return {
-                        appid,
-                        type: gameData.type,
-                        name: gameData.name,
-                        required_age: gameData.required_age || 0,
-                        developers: gameData.developers || [],
-                        publishers: gameData.publishers || [],
-                        packages: gameData.packages || [],
-                        platforms: gameData.platforms || {},
-                        genres: (gameData.genres || []).map(g => g.description),
-                        dlc: gameData.dlc || [],
-                        header_image: gameData.header_image || '',
-                        website: gameData.website || '',
-                        price: priceData,
-                        price_overview: gameData.price_overview || null
-                    };
-                }
+            // Verificar si la respuesta es válida
+            if (!response.data || !response.data[appid]) {
+                throw new Error('Respuesta inválida de la API de Steam');
             }
-            return null;
+
+            const gameData = response.data[appid];
+
+            // Si la API indica que no tuvo éxito, retornamos null
+            if (!gameData.success) {
+                return null;
+            }
+
+            const data = gameData.data;
+            
+            // Verificar si tenemos datos válidos
+            if (!data || typeof data !== 'object') {
+                throw new Error('Datos del juego inválidos');
+            }
+
+            // Determinar si es un tipo principal
+            const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
+            const is_free = data.is_free || false;
+
+            // Procesar los datos del juego
+            return {
+                appid,
+                type: data.type || STEAM_TYPES.UNKNOWN,
+                isMainType,
+                is_free,
+                name: data.name || name,
+                required_age: data.required_age || 0,
+                developers: data.developers || [],
+                publishers: data.publishers || [],
+                packages: data.packages || [],
+                platforms: data.platforms || {},
+                genres: (data.genres || []).map(g => g.description),
+                dlc: data.dlc || [],
+                header_image: data.header_image || '',
+                website: data.website || '',
+                // Solo incluir información de precio si no es gratuito
+                price: !is_free ? this._processPriceData(data.price_overview) : null,
+                price_overview: !is_free ? data.price_overview || null : null,
+                lastUpdated: new Date()
+            };
         } catch (error) {
-            console.error(`Error fetching details for game ${appid}:`, error.message);
+            console.error(`Error obteniendo detalles para el juego ${appid}:`, error.message);
             return null;
         }
     }
