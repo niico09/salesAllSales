@@ -24,17 +24,17 @@ const gameSchema = new mongoose.Schema({
         type: String, 
         enum: Object.values(STEAM_TYPES), 
         default: STEAM_TYPES.UNKNOWN,
-        index: true // Índice para búsquedas por tipo
+        index: true
     },
     isMainType: { 
         type: Boolean, 
         default: false,
-        index: true // Índice para filtrar rápidamente por tipos principales
+        index: true
     },
     is_free: {
         type: Boolean,
         default: false,
-        index: true // Índice para búsquedas rápidas de juegos gratuitos
+        index: true
     },
     name: { type: String, required: true },
     required_age: { type: Number },
@@ -56,7 +56,6 @@ const gameSchema = new mongoose.Schema({
     lastUpdated: { type: Date, default: Date.now }
 });
 
-// Índices para mejorar el rendimiento de las búsquedas
 gameSchema.index({ name: 1 });
 gameSchema.index({ 'price_overview.discount_percent': 1 });
 gameSchema.index({ genres: 1 });
