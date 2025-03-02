@@ -6,20 +6,18 @@ const { DEFAULT_PAGE_SIZE } = require('../config/constants');
 class SearchService {
     async searchGames(filters = {}) {
         try {
-            console.log('Filtros recibidos:', filters); // Debug
+            console.log('Filtros recibidos:', filters); 
 
             const query = this._buildQuery(filters);
-            console.log('Query construida:', JSON.stringify(query, null, 2)); // Debug
+            console.log('Query construida:', JSON.stringify(query, null, 2)); 
 
             const page = parseInt(filters.page) || 1;
             const pageSize = parseInt(filters.pageSize) || DEFAULT_PAGE_SIZE;
             const skip = (page - 1) * pageSize;
 
-            // Primero verificar cuántos documentos hay en total
             const totalCount = await Game.countDocuments({});
-            console.log('Total de juegos en la base de datos:', totalCount); // Debug
+            console.log('Total de juegos en la base de datos:', totalCount); 
 
-            // Hacer la consulta principal
             const [games, total] = await Promise.all([
                 Game.find(query)
                     .select('appid name type isMainType is_free developers publishers genres price_overview header_image lastUpdated')
@@ -28,9 +26,8 @@ class SearchService {
                 Game.countDocuments(query)
             ]);
 
-            console.log(`Encontrados ${games.length} juegos`); // Debug
+            console.log(`Encontrados ${games.length} juegos`); 
 
-            // Si no hay juegos, devolver respuesta vacía
             if (!games.length) {
                 return {
                     games: [],
@@ -43,10 +40,8 @@ class SearchService {
                 };
             }
 
-            // Iniciar la actualización de juegos en segundo plano
-            this._updateGamesDataAsync(games);
+            // this._updateGamesDataAsync(games);
 
-            // Devolver los datos inmediatamente
             return {
                 games: games.map(game => game.toObject()),
                 pagination: {
@@ -73,7 +68,6 @@ class SearchService {
                     const updatedData = await SteamService.getGameDetails(game.appid, game.name);
                     
                     if (updatedData) {
-                        // Actualizar solo los campos que vienen en updatedData
                         Object.keys(updatedData).forEach(key => {
                             if (updatedData[key] !== undefined) {
                                 game[key] = updatedData[key];
@@ -107,14 +101,12 @@ class SearchService {
 
     _buildQuery(filters = {}) {
         const query = {
-            // Verificar que type existe y no es unknown
             type: { 
                 $exists: true,
                 $ne: STEAM_TYPES.UNKNOWN 
             }
         };
 
-        // Por defecto, no aplicamos ningún filtro de tipo
         if (filters.includeAllTypes === false) {
             query.isMainType = true;
         }
@@ -139,7 +131,6 @@ class SearchService {
             query.is_free = filters.isFree === 'true';
         }
 
-        // Solo agregar filtros de descuento si el juego no es gratuito
         if (filters.discountPercentage || filters.minDiscount || filters.maxDiscount) {
             query.is_free = false;
             
@@ -153,6 +144,36 @@ class SearchService {
         }
 
         return query;
+    }
+
+    async getUniqueGenres() {
+        try {
+            const genres = await Game.distinct('genres');
+            return genres.filter(genre => genre).sort();
+        } catch (error) {
+            console.error('Error obteniendo géneros únicos:', error);
+            return [];
+        }
+    }
+
+    async getUniquePublishers() {
+        try {
+            const publishers = await Game.distinct('publishers');
+            return publishers.filter(publisher => publisher).sort();
+        } catch (error) {
+            console.error('Error obteniendo editores únicos:', error);
+            return [];
+        }
+    }
+
+    async getUniqueDevelopers() {
+        try {
+            const developers = await Game.distinct('developers');
+            return developers.filter(developer => developer).sort();
+        } catch (error) {
+            console.error('Error obteniendo desarrolladores únicos:', error);
+            return [];
+        }
     }
 }
 

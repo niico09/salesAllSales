@@ -22,30 +22,25 @@ class SteamService {
             await delay(1000);
             const response = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us`);
             
-            // Verificar si la respuesta es válida
             if (!response.data || !response.data[appid]) {
                 throw new Error('Respuesta inválida de la API de Steam');
             }
 
             const gameData = response.data[appid];
 
-            // Si la API indica que no tuvo éxito, retornamos null
             if (!gameData.success) {
                 return null;
             }
 
             const data = gameData.data;
             
-            // Verificar si tenemos datos válidos
             if (!data || typeof data !== 'object') {
                 throw new Error('Datos del juego inválidos');
             }
 
-            // Determinar si es un tipo principal
             const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
             const is_free = data.is_free || false;
 
-            // Procesar los datos del juego
             return {
                 appid,
                 type: data.type || STEAM_TYPES.UNKNOWN,
@@ -61,7 +56,6 @@ class SteamService {
                 dlc: data.dlc || [],
                 header_image: data.header_image || '',
                 website: data.website || '',
-                // Solo incluir información de precio si no es gratuito
                 price: !is_free ? this._processPriceData(data.price_overview) : null,
                 price_overview: !is_free ? data.price_overview || null : null,
                 lastUpdated: new Date()

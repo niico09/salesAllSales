@@ -3,7 +3,6 @@ const router = express.Router();
 const searchService = require('../services/searchService');
 const { PAGINATION } = require('../config/constants');
 
-// Endpoint para buscar juegos con múltiples filtros
 router.get('/games', async (req, res) => {
     try {
         const {
@@ -18,7 +17,6 @@ router.get('/games', async (req, res) => {
             pageSize = PAGINATION.DEFAULT_PAGE_SIZE
         } = req.query;
 
-        // Construimos el objeto de filtros
         const filters = {
             genre,
             publisher,
@@ -29,12 +27,10 @@ router.get('/games', async (req, res) => {
             maxDiscount
         };
 
-        // Eliminamos los filtros undefined
         Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
 
         const result = await searchService.searchGames(filters, page, pageSize);
 
-        // Si se solicitan los valores únicos para los filtros
         if (req.query.includeFilterOptions === 'true') {
             result.filterOptions = {
                 genres: await searchService.getUniqueGenres(),

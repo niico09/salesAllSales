@@ -4,7 +4,6 @@ const SteamService = require('./steamService');
 
 class UpdateService {
     constructor() {
-        // Configuración del delay entre peticiones (1 segundo)
         this.requestDelay = 1000;
     }
 
@@ -12,7 +11,6 @@ class UpdateService {
         try {
             const updatedGameData = await SteamService.getGameDetails(game.appid);
             if (updatedGameData) {
-                // Si el precio ha cambiado, guardamos el precio actual en el historial
                 if (this.hasPriceChanged(game, updatedGameData)) {
                     if (game.price) {
                         if (!game.priceHistory) game.priceHistory = [];
@@ -20,7 +18,6 @@ class UpdateService {
                     }
                 }
 
-                // Actualizamos la información del juego
                 Object.assign(game, updatedGameData);
                 game.lastUpdated = new Date();
                 await game.save();
@@ -44,14 +41,11 @@ class UpdateService {
         try {
             console.log('Iniciando sincronización de nuevos juegos...');
             
-            // Obtener lista de juegos de Steam
             const steamGames = await SteamService.getGamesList();
             
-            // Obtener IDs de juegos en la base de datos
             const existingGames = await Game.find({}, { appid: 1 });
             const existingIds = new Set(existingGames.map(g => g.appid));
             
-            // Encontrar juegos nuevos
             const newGames = steamGames.filter(game => !existingIds.has(game.appid));
             
             if (newGames.length === 0) {
@@ -61,7 +55,6 @@ class UpdateService {
             
             console.log(`Encontrados ${newGames.length} juegos nuevos. Obteniendo detalles...`);
             
-            // Obtener detalles y guardar cada juego nuevo
             const savedGames = [];
             for (const game of newGames) {
                 try {
@@ -72,7 +65,6 @@ class UpdateService {
                         savedGames.push(newGame);
                         console.log(`Guardado nuevo juego: ${game.name} (${game.appid})`);
                     }
-                    // Esperar entre cada petición para evitar rate limiting
                     await new Promise(resolve => setTimeout(resolve, this.requestDelay));
                 } catch (error) {
                     console.error(`Error guardando el juego ${game.appid}:`, error.message);
@@ -91,13 +83,10 @@ class UpdateService {
         try {
             console.log('Iniciando actualización de todos los juegos...');
             
-            // Primero sincronizamos juegos nuevos
             await this.syncNewGames();
             
-            // Luego actualizamos los juegos existentes
             const games = await Game.find({});
             
-            // Actualizamos los juegos uno por uno con un delay entre cada petición
             for (const game of games) {
                 await this.updateGameDetails(game);
                 await new Promise(resolve => setTimeout(resolve, this.requestDelay));
@@ -110,7 +99,7 @@ class UpdateService {
     }
 
     startUpdateCron() {
-        // Programamos la actualización cada 2 horas
+        this.updateAllGames();
         cron.schedule('0 */2 * * *', () => {
             console.log('Iniciando actualización programada...');
             this.updateAllGames();
