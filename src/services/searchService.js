@@ -1,39 +1,51 @@
 const Game = require('../models/Game');
 const SteamService = require('./steamService');
 const { STEAM_FILTERS, STEAM_TYPES } = require('../config/steamConstants');
-const { DEFAULT_PAGE_SIZE } = require('../config/constants');
+const { PAGINATION } = require('../config/constants');
 
+/**
+ * Service for searching and filtering games
+ * @class SearchService
+ */
 class SearchService {
-    async searchGames(filters = {}) {
+    /**
+     * Search for games with filters and pagination
+     * @param {Object} filters - Filter criteria
+     * @param {number} page - Page number
+     * @param {number} pageSize - Items per page
+     * @returns {Object} Search results with pagination
+     */
+    async searchGames(filters = {}, page = PAGINATION.DEFAULT_PAGE, pageSize = PAGINATION.DEFAULT_PAGE_SIZE) {
         try {
-            console.log('Filtros recibidos:', filters); 
+            console.log('Received filters:', filters); 
 
             const query = this._buildQuery(filters);
-            console.log('Query construida:', JSON.stringify(query, null, 2)); 
+            console.log('Built query:', JSON.stringify(query, null, 2)); 
 
-            const page = parseInt(filters.page) || 1;
-            const pageSize = parseInt(filters.pageSize) || DEFAULT_PAGE_SIZE;
-            const skip = (page - 1) * pageSize;
+            // Ensure pagination limits
+            const validPage = parseInt(page) || PAGINATION.DEFAULT_PAGE;
+            const validPageSize = Math.min(parseInt(pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE);
+            const skip = (validPage - 1) * validPageSize;
 
             const totalCount = await Game.countDocuments({});
-            console.log('Total de juegos en la base de datos:', totalCount); 
+            console.log('Total games in database:', totalCount); 
 
             const [games, total] = await Promise.all([
                 Game.find(query)
                     .select('appid name type isMainType is_free developers publishers genres price_overview header_image lastUpdated')
                     .skip(skip)
-                    .limit(pageSize),
+                    .limit(validPageSize),
                 Game.countDocuments(query)
             ]);
 
-            console.log(`Encontrados ${games.length} juegos`); 
+            console.log(`Found ${games.length} games`); 
 
             if (!games.length) {
                 return {
                     games: [],
                     pagination: {
-                        page,
-                        pageSize,
+                        page: validPage,
+                        pageSize: validPageSize,
                         total: 0,
                         totalPages: 0
                     }
@@ -45,18 +57,23 @@ class SearchService {
             return {
                 games: games.map(game => game.toObject()),
                 pagination: {
-                    page,
-                    pageSize,
+                    page: validPage,
+                    pageSize: validPageSize,
                     total,
-                    totalPages: Math.ceil(total / pageSize)
+                    totalPages: Math.ceil(total / validPageSize)
                 }
             };
         } catch (error) {
-            console.error('Error en searchGames:', error);
+            console.error('Error in searchGames:', error);
             throw error;
         }
     }
 
+    /**
+     * Update game data asynchronously
+     * @param {Array} games - Games to update
+     * @private
+     */
     async _updateGamesDataAsync(games) {
         const currentTime = new Date();
         const TWO_HOURS = 2 * 60 * 60 * 1000;
@@ -64,7 +81,7 @@ class SearchService {
         for (const game of games) {
             try {
                 if (this._needsUpdate(game, currentTime, TWO_HOURS) || this._isIncomplete(game)) {
-                    console.log(`Actualizando juego en segundo plano: ${game.name} (${game.appid})`); // Debug
+                    console.log(`Updating game in background: ${game.name} (${game.appid})`);
                     const updatedData = await SteamService.getGameDetails(game.appid, game.name);
                     
                     if (updatedData) {
@@ -76,20 +93,34 @@ class SearchService {
                         
                         game.lastUpdated = new Date();
                         await game.save();
-                        console.log(`Juego actualizado con éxito en segundo plano: ${game.name}`);
+                        console.log(`Game successfully updated in background: ${game.name}`);
                     }
                 }
             } catch (error) {
-                console.error(`Error actualizando el juego ${game.appid} en segundo plano:`, error);
+                console.error(`Error updating game ${game.appid} in background:`, error);
             }
         }
     }
 
+    /**
+     * Check if a game needs update
+     * @param {Object} game - Game to check
+     * @param {Date} currentTime - Current time
+     * @param {number} updateInterval - Update interval in milliseconds
+     * @returns {boolean} True if game needs update
+     * @private
+     */
     _needsUpdate(game, currentTime, updateInterval) {
         if (!game.lastUpdated) return true;
         return (currentTime - new Date(game.lastUpdated)) > updateInterval;
     }
 
+    /**
+     * Check if a game has incomplete data
+     * @param {Object} game - Game to check
+     * @returns {boolean} True if game has incomplete data
+     * @private
+     */
     _isIncomplete(game) {
         return !game.type || 
                !game.developers?.length || 
@@ -99,6 +130,12 @@ class SearchService {
                game.is_free === undefined;
     }
 
+    /**
+     * Build query object from filters
+     * @param {Object} filters - Filter criteria
+     * @returns {Object} MongoDB query object
+     * @private
+     */
     _buildQuery(filters = {}) {
         const query = {
             type: { 
@@ -146,32 +183,44 @@ class SearchService {
         return query;
     }
 
+    /**
+     * Get unique genres from database
+     * @returns {Array} List of unique genres
+     */
     async getUniqueGenres() {
         try {
             const genres = await Game.distinct('genres');
             return genres.filter(genre => genre).sort();
         } catch (error) {
-            console.error('Error obteniendo géneros únicos:', error);
+            console.error('Error getting unique genres:', error);
             return [];
         }
     }
 
+    /**
+     * Get unique publishers from database
+     * @returns {Array} List of unique publishers
+     */
     async getUniquePublishers() {
         try {
             const publishers = await Game.distinct('publishers');
             return publishers.filter(publisher => publisher).sort();
         } catch (error) {
-            console.error('Error obteniendo editores únicos:', error);
+            console.error('Error getting unique publishers:', error);
             return [];
         }
     }
 
+    /**
+     * Get unique developers from database
+     * @returns {Array} List of unique developers
+     */
     async getUniqueDevelopers() {
         try {
             const developers = await Game.distinct('developers');
             return developers.filter(developer => developer).sort();
         } catch (error) {
-            console.error('Error obteniendo desarrolladores únicos:', error);
+            console.error('Error getting unique developers:', error);
             return [];
         }
     }
