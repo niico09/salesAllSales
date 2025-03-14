@@ -44,6 +44,19 @@ const gameSchema = new mongoose.Schema({
     website: {
         type: String
     },
+    metacritic: {
+        score: {
+            type: Number
+        },
+        url: {
+            type: String
+        }
+    },
+    recommendations: {
+        total: {
+            type: Number
+        }
+    },
     lastUpdated: {
         type: Date,
         default: Date.now

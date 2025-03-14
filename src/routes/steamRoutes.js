@@ -59,6 +59,77 @@ router.get('/steam-games', steamController.getSteamGames);
 
 /**
  * @swagger
+ * /game/{appid}:
+ *   get:
+ *     summary: Obtiene detalles de un juego específico
+ *     description: Retorna información detallada de un juego, incluyendo datos de Metacritic y recomendaciones. Si el juego no existe en la base de datos o está desactualizado, obtiene la información de la API de Steam.
+ *     tags: [Steam]
+ *     parameters:
+ *       - in: path
+ *         name: appid
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID de la aplicación en Steam
+ *     responses:
+ *       200:
+ *         description: Detalles del juego
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 appid:
+ *                   type: integer
+ *                   example: 3534180
+ *                 name:
+ *                   type: string
+ *                 type:
+ *                   type: string
+ *                 metacritic:
+ *                   type: object
+ *                   properties:
+ *                     score:
+ *                       type: integer
+ *                       nullable: true
+ *                     url:
+ *                       type: string
+ *                       nullable: true
+ *                 recommendations:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                 developers:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 publishers:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 genres:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 header_image:
+ *                   type: string
+ *                 website:
+ *                   type: string
+ *                 lastUpdated:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: ID de aplicación inválido
+ *       404:
+ *         description: Juego no encontrado
+ *       500:
+ *         description: Error del servidor
+ */
+router.get('/game/:appid', steamController.getGameDetails);
+
+/**
+ * @swagger
  * /check-differences:
  *   get:
  *     summary: Comprueba diferencias entre la API de Steam y la base de datos

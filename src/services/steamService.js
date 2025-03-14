@@ -1,13 +1,27 @@
 const axios = require('axios');
 const Game = require('../models/Game');
 const { STEAM_TYPES, STEAM_FILTERS } = require('../config/steamConstants');
+const logger = require('../utils/logger');
 
+/**
+ * Utility function to add delay between API calls
+ * @param {number} ms - Milliseconds to delay
+ * @returns {Promise} Promise that resolves after the delay
+ */
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Service for interacting with Steam API
+ * @class SteamService
+ */
 class SteamService {
     constructor() {
     }
 
+    /**
+     * Get list of games from Steam API
+     * @returns {Promise<Array>} List of games
+     */
     async getGamesList() {
         const response = await axios.get(`https://api.steampowered.com/ISteamApps/GetAppList/v2/?key=${process.env.STEAM_API_KEY}`);
         return response.data.applist.apps.filter(game => 
@@ -17,29 +31,51 @@ class SteamService {
         );
     }
 
+    /**
+     * Get detailed information for a game from Steam API
+     * Time complexity: O(1) - Single API call with constant processing time
+     * @param {number} appid - Steam application ID
+     * @param {string} name - Game name
+     * @returns {Promise<Object|null>} Game details or null if not found
+     */
     async getGameDetails(appid, name) {
         try {
+            // Add delay to avoid rate limiting
             await delay(1000);
+            
+            logger.info(`Fetching details for game ${name} (${appid})`);
             const response = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us`);
             
             if (!response.data || !response.data[appid]) {
-                throw new Error('Respuesta inválida de la API de Steam');
+                throw new Error('Invalid response from Steam API');
             }
 
             const gameData = response.data[appid];
 
             if (!gameData.success) {
+                logger.warn(`No data available for game ${name} (${appid})`);
                 return null;
             }
 
             const data = gameData.data;
             
             if (!data || typeof data !== 'object') {
-                throw new Error('Datos del juego inválidos');
+                throw new Error('Invalid game data');
             }
 
             const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
             const is_free = data.is_free || false;
+
+            // Extract metacritic information if available
+            const metacritic = data.metacritic ? {
+                score: data.metacritic.score || null,
+                url: data.metacritic.url || null
+            } : null;
+
+            // Extract recommendations information if available
+            const recommendations = data.recommendations ? {
+                total: data.recommendations.total || 0
+            } : null;
 
             return {
                 appid,
@@ -56,16 +92,24 @@ class SteamService {
                 dlc: data.dlc || [],
                 header_image: data.header_image || '',
                 website: data.website || '',
+                metacritic,
+                recommendations,
                 price: !is_free ? this._processPriceData(data.price_overview) : null,
                 price_overview: !is_free ? data.price_overview || null : null,
                 lastUpdated: new Date()
             };
         } catch (error) {
-            console.error(`Error obteniendo detalles para el juego ${appid}:`, error.message);
+            logger.error(`Error getting details for game ${appid}: ${error.message}`);
             return null;
         }
     }
 
+    /**
+     * Process price data from Steam API
+     * @param {Object} priceOverview - Price overview object from Steam API
+     * @returns {Object|null} Processed price data or null if not available
+     * @private
+     */
     _processPriceData(priceOverview) {
         if (!priceOverview) return null;
 

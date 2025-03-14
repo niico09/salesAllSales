@@ -6,6 +6,7 @@ const axios = require('axios');
 const Game = require('../models/Game');
 const logger = require('../utils/logger');
 const { PAGINATION } = require('../config/constants');
+const steamService = require('../services/steamService');
 
 /**
  * Get Steam games with pagination
@@ -182,8 +183,114 @@ const getStoredGames = async (req, res) => {
     }
 };
 
+/**
+ * Get game details including all available information from database
+ * Time complexity: O(1) - Single database query and potential API call
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const getGameDetails = async (req, res) => {
+    try {
+        const appid = parseInt(req.params.appid);
+        
+        if (!appid || isNaN(appid)) {
+            return res.status(400).json({ error: 'ID de aplicación inválido' });
+        }
+        
+        logger.info(`Fetching details for game with appid: ${appid}`);
+        
+        // Try to find the game in the database
+        let game = await Game.findOne({ appid });
+        
+        // If game doesn't exist or data is old, update from Steam API
+        const needsUpdate = !game || 
+                           !game.metacritic || 
+                           !game.recommendations ||
+                           (game.lastUpdated && (new Date() - new Date(game.lastUpdated)) > (24 * 60 * 60 * 1000)); // 24 hours
+        
+        if (needsUpdate) {
+            logger.info(`Game not found or data is outdated. Updating from Steam API for appid: ${appid}`);
+            
+            // Get updated data from Steam API
+            const gameDetails = await steamService.getGameDetails(appid, game ? game.name : 'Unknown');
+            
+            if (gameDetails) {
+                if (!game) {
+                    // Create new game if it doesn't exist
+                    game = new Game(gameDetails);
+                    await game.save();
+                    logger.info(`Created new game entry for appid: ${appid}`);
+                } else {
+                    // Update existing game
+                    Object.keys(gameDetails).forEach(key => {
+                        if (gameDetails[key] !== undefined) {
+                            game[key] = gameDetails[key];
+                        }
+                    });
+                    
+                    await game.save();
+                    logger.info(`Updated existing game entry for appid: ${appid}`);
+                }
+            } else {
+                // If game not found in Steam API, try with a known game (Half-Life 2, appid 220)
+                logger.info(`Game not found in Steam API. Fetching reference game (Half-Life 2) for comparison`);
+                
+                const referenceGameResponse = await axios.get('https://store.steampowered.com/api/appdetails?appids=220');
+                
+                if (referenceGameResponse.data && referenceGameResponse.data['220'] && referenceGameResponse.data['220'].success) {
+                    const referenceData = referenceGameResponse.data['220'].data;
+                    
+                    // Create a placeholder game with reference structure but minimal data
+                    if (!game) {
+                        game = new Game({
+                            appid,
+                            name: 'Unknown Game',
+                            metacritic: referenceData.metacritic ? {
+                                score: null,
+                                url: null
+                            } : null,
+                            recommendations: referenceData.recommendations ? {
+                                total: 0
+                            } : null,
+                            lastUpdated: new Date()
+                        });
+                        
+                        await game.save();
+                        logger.info(`Created placeholder entry for appid: ${appid} based on reference game`);
+                    }
+                } else if (!game) {
+                    return res.status(404).json({ 
+                        error: 'Game not found in Steam API',
+                        message: 'Could not retrieve information for this game from Steam'
+                    });
+                }
+            }
+        }
+        
+        // Refresh game data from database to ensure we have the latest version
+        game = await Game.findOne({ appid });
+        
+        if (!game) {
+            return res.status(404).json({ error: 'Game not found' });
+        }
+        
+        // Convert Mongoose document to plain JavaScript object
+        const gameObject = game.toObject();
+        
+        // Remove MongoDB specific fields if needed
+        delete gameObject.__v;
+        
+        // Return the complete game data
+        res.json(gameObject);
+    } catch (error) {
+        logger.error(`Error fetching game details: ${error.message}`);
+        res.status(500).json({ error: 'Error fetching game details' });
+    }
+};
+
 module.exports = {
     getSteamGames,
     checkDifferences,
-    getStoredGames
+    getStoredGames,
+    getGameDetails
 };
