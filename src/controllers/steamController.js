@@ -172,6 +172,23 @@ const getGameDetails = async (req, res) => {
         
         let game = await Game.findOne({ appid });
         
+        // Migrar datos de price_overview a price si existe el campo antiguo
+        if (game && game.price_overview && !game.price) {
+            logger.info(`Migrando datos de price_overview a price para el juego ${appid}`);
+            game.price = {
+                currency: game.price_overview.currency,
+                initial: game.price_overview.initial / 100,
+                final: game.price_overview.final / 100,
+                discount_percent: game.price_overview.discount_percent,
+                initial_formatted: game.price_overview.initial_formatted,
+                final_formatted: game.price_overview.final_formatted,
+                lastChecked: new Date()
+            };
+            game.price_overview = undefined;
+            await game.save();
+            logger.info(`Migración completada para el juego ${appid}`);
+        }
+        
         const needsUpdate = !game || 
                            !game.metacritic || 
                            !game.recommendations ||
@@ -192,7 +209,7 @@ const getGameDetails = async (req, res) => {
                     
                     Object.keys(gameDetails).forEach(key => {
                         if (gameDetails[key] !== undefined) {
-                            if ((key === 'metacritic' || key === 'recommendations') && gameDetails[key]) {
+                            if ((key === 'metacritic' || key === 'recommendations' || key === 'price') && gameDetails[key]) {
                                 updatedGame[key] = gameDetails[key];
                                 game[key] = gameDetails[key];
                                 logger.info(`Updated ${key} information for game ${appid}`);
@@ -202,6 +219,11 @@ const getGameDetails = async (req, res) => {
                             }
                         }
                     });
+                    
+                    // Eliminar el campo price_overview si existe
+                    if (game.price_overview) {
+                        game.price_overview = undefined;
+                    }
                     
                     game.lastUpdated = new Date();
                     
@@ -243,6 +265,11 @@ const getGameDetails = async (req, res) => {
         const gameObject = game.toObject();
         
         delete gameObject.__v;
+        
+        // Eliminar el campo price_overview de la respuesta si existe
+        if (gameObject.price_overview) {
+            delete gameObject.price_overview;
+        }
         
         res.json(gameObject);
     } catch (error) {

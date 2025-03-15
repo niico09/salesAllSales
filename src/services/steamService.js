@@ -42,43 +42,67 @@ class SteamService {
                 throw new Error('Invalid game data');
             }
 
-            const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
-            const is_free = data.is_free || false;
-
-            const metacritic = data.metacritic ? {
-                score: data.metacritic.score || null,
-                url: data.metacritic.url || null
-            } : null;
-
-            const recommendations = data.recommendations ? {
-                total: data.recommendations.total || 0
-            } : null;
-
-            return {
-                appid,
-                type: data.type || STEAM_TYPES.UNKNOWN,
-                isMainType,
-                is_free,
-                name: data.name || name,
-                required_age: data.required_age || 0,
-                developers: data.developers || [],
-                publishers: data.publishers || [],
-                packages: data.packages || [],
-                platforms: data.platforms || {},
-                genres: (data.genres || []).map(g => g.description),
-                dlc: data.dlc || [],
-                header_image: data.header_image || '',
-                website: data.website || '',
-                metacritic,
-                recommendations,
-                price: !is_free ? this._processPriceData(data.price_overview) : null,
-                price_overview: !is_free ? data.price_overview || null : null,
-                lastUpdated: new Date()
-            };
+            return this._processGameData(appid, name, data);
         } catch (error) {
             logger.error(`Error getting details for game ${appid}: ${error.message}`);
             return null;
         }
+    }
+
+    _processGameData(appid, name, data) {
+        const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
+        const is_free = data.is_free || false;
+
+        const metacritic = this._processMetacriticData(data.metacritic);
+        const recommendations = this._processRecommendationsData(data.recommendations);
+        const price = !is_free ? this._processPriceData(data.price_overview) : null;
+
+        return {
+            appid,
+            type: data.type || STEAM_TYPES.UNKNOWN,
+            isMainType,
+            is_free,
+            name: data.name || name,
+            required_age: data.required_age || 0,
+            developers: data.developers || [],
+            publishers: data.publishers || [],
+            packages: data.packages || [],
+            platforms: data.platforms || {},
+            genres: (data.genres || []).map(g => g.description),
+            dlc: data.dlc || [],
+            header_image: data.header_image || '',
+            website: data.website || '',
+            metacritic,
+            recommendations,
+            price,
+            lastUpdated: new Date()
+        };
+    }
+
+    _processMetacriticData(metacriticData) {
+        if (!metacriticData) {
+            return {
+                score: null,
+                url: null
+            };
+        }
+
+        return {
+            score: metacriticData.score || null,
+            url: metacriticData.url || null
+        };
+    }
+
+    _processRecommendationsData(recommendationsData) {
+        if (!recommendationsData) {
+            return {
+                total: 0
+            };
+        }
+
+        return {
+            total: recommendationsData.total || 0
+        };
     }
 
     _processPriceData(priceOverview) {
