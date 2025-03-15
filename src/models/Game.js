@@ -65,6 +65,7 @@ gameSchema.index({ genres: 1 });
 gameSchema.index({ publishers: 1 });
 gameSchema.index({ developers: 1 });
 gameSchema.index({ 'metacritic.score': 1 });
+gameSchema.index({ 'metacritic.score': 1 });
 
 const Game = mongoose.model('Game', gameSchema);
 

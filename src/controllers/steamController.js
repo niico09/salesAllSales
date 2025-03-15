@@ -166,6 +166,11 @@ const getGameDetails = async (req, res) => {
                 error: 'ID de aplicación inválido',
                 message: 'El ID de aplicación debe ser un número entero válido'
             });
+            logger.warn(`Intento de acceso con ID de aplicación inválido: ${req.params.appid}`);
+            return res.status(400).json({ 
+                error: 'ID de aplicación inválido',
+                message: 'El ID de aplicación debe ser un número entero válido'
+            });
         }
         
         logger.info(`Fetching details for game with appid: ${appid}`);
@@ -248,6 +253,8 @@ const getGameDetails = async (req, res) => {
                     return res.status(404).json({ 
                         error: 'Juego no encontrado',
                         message: 'No se pudo encontrar información para este juego en la API de Steam'
+                        error: 'Juego no encontrado',
+                        message: 'No se pudo encontrar información para este juego en la API de Steam'
                     });
                 }
             }
@@ -256,6 +263,10 @@ const getGameDetails = async (req, res) => {
         game = await Game.findOne({ appid });
         
         if (!game) {
+            return res.status(404).json({ 
+                error: 'Juego no encontrado',
+                message: 'No se pudo encontrar el juego solicitado en la base de datos'
+            });
             return res.status(404).json({ 
                 error: 'Juego no encontrado',
                 message: 'No se pudo encontrar el juego solicitado en la base de datos'
@@ -274,6 +285,10 @@ const getGameDetails = async (req, res) => {
         res.json(gameObject);
     } catch (error) {
         logger.error(`Error fetching game details: ${error.message}`);
+        res.status(500).json({ 
+            error: 'Error al obtener detalles del juego',
+            message: 'Se produjo un error al recuperar los detalles del juego solicitado'
+        });
         res.status(500).json({ 
             error: 'Error al obtener detalles del juego',
             message: 'Se produjo un error al recuperar los detalles del juego solicitado'
