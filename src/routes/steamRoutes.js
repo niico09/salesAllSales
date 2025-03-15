@@ -1,7 +1,3 @@
-/**
- * Routes for Steam games related endpoints
- * Follows SOLID principles and clean code practices
- */
 const express = require('express');
 const router = express.Router();
 const steamController = require('../controllers/steamController');
