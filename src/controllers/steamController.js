@@ -252,7 +252,7 @@ const getGameDetails = async (req, res) => {
                 } else {
                     return res.status(404).json({ 
                         error: 'Juego no encontrado',
-                        message: 'No se pudo encontrar información para este juego en la API de Steam'
+                        message: 'No se pudo encontrar información para este juego en la API de Steam',
                         error: 'Juego no encontrado',
                         message: 'No se pudo encontrar información para este juego en la API de Steam'
                     });
