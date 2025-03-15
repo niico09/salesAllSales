@@ -63,41 +63,8 @@ class SteamService {
                 throw new Error('Invalid game data');
             }
 
-            const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
-            const is_free = data.is_free || false;
-
-            // Extract metacritic information if available
-            const metacritic = data.metacritic ? {
-                score: data.metacritic.score || null,
-                url: data.metacritic.url || null
-            } : null;
-
-            // Extract recommendations information if available
-            const recommendations = data.recommendations ? {
-                total: data.recommendations.total || 0
-            } : null;
-
-            return {
-                appid,
-                type: data.type || STEAM_TYPES.UNKNOWN,
-                isMainType,
-                is_free,
-                name: data.name || name,
-                required_age: data.required_age || 0,
-                developers: data.developers || [],
-                publishers: data.publishers || [],
-                packages: data.packages || [],
-                platforms: data.platforms || {},
-                genres: (data.genres || []).map(g => g.description),
-                dlc: data.dlc || [],
-                header_image: data.header_image || '',
-                website: data.website || '',
-                metacritic,
-                recommendations,
-                price: !is_free ? this._processPriceData(data.price_overview) : null,
-                price_overview: !is_free ? data.price_overview || null : null,
-                lastUpdated: new Date()
-            };
+            // Process game data utilizando métodos especializados para cada tipo de datos
+            return this._processGameData(appid, name, data);
         } catch (error) {
             logger.error(`Error getting details for game ${appid}: ${error.message}`);
             return null;
@@ -105,7 +72,93 @@ class SteamService {
     }
 
     /**
+     * Process game data from Steam API response
+     * Time complexity: O(1) - Constant time for data extraction
+     * @param {number} appid - Steam application ID
+     * @param {string} name - Game name
+     * @param {Object} data - Game data from Steam API
+     * @returns {Object} Processed game data
+     * @private
+     */
+    _processGameData(appid, name, data) {
+        // Determine if game is a main type (game, dlc, etc)
+        const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
+        const is_free = data.is_free || false;
+
+        // Procesar datos utilizando métodos especializados
+        const metacritic = this._processMetacriticData(data.metacritic);
+        const recommendations = this._processRecommendationsData(data.recommendations);
+        const price = !is_free ? this._processPriceData(data.price_overview) : null;
+
+        // Return structured game data
+        return {
+            appid,
+            type: data.type || STEAM_TYPES.UNKNOWN,
+            isMainType,
+            is_free,
+            name: data.name || name,
+            required_age: data.required_age || 0,
+            developers: data.developers || [],
+            publishers: data.publishers || [],
+            packages: data.packages || [],
+            platforms: data.platforms || {},
+            genres: (data.genres || []).map(g => g.description),
+            dlc: data.dlc || [],
+            header_image: data.header_image || '',
+            website: data.website || '',
+            metacritic,
+            recommendations,
+            price,
+            price_overview: !is_free ? data.price_overview || null : null,
+            lastUpdated: new Date()
+        };
+    }
+
+    /**
+     * Process metacritic data from Steam API
+     * Time complexity: O(1) - Constant time operation
+     * @param {Object} metacriticData - Metacritic object from Steam API
+     * @returns {Object|null} Processed metacritic data or null if not available
+     * @private
+     */
+    _processMetacriticData(metacriticData) {
+        if (!metacriticData) {
+            // Crear un objeto vacío para asegurar que siempre exista el campo
+            return {
+                score: null,
+                url: null
+            };
+        }
+
+        return {
+            score: metacriticData.score || null,
+            url: metacriticData.url || null
+        };
+    }
+
+    /**
+     * Process recommendations data from Steam API
+     * Time complexity: O(1) - Constant time operation
+     * @param {Object} recommendationsData - Recommendations object from Steam API
+     * @returns {Object} Processed recommendations data (never null)
+     * @private
+     */
+    _processRecommendationsData(recommendationsData) {
+        if (!recommendationsData) {
+            // Crear un objeto vacío para asegurar que siempre exista el campo
+            return {
+                total: 0
+            };
+        }
+
+        return {
+            total: recommendationsData.total || 0
+        };
+    }
+
+    /**
      * Process price data from Steam API
+     * Time complexity: O(1) - Constant time operation
      * @param {Object} priceOverview - Price overview object from Steam API
      * @returns {Object|null} Processed price data or null if not available
      * @private
