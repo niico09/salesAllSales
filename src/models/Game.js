@@ -18,6 +18,15 @@ const priceSchema = new mongoose.Schema({
     lastChecked: { type: Date, default: Date.now }
 });
 
+const metacriticSchema = new mongoose.Schema({
+    score: { type: Number },
+    url: { type: String }
+});
+
+const recommendationsSchema = new mongoose.Schema({
+    total: { type: Number, default: 0 }
+});
+
 const gameSchema = new mongoose.Schema({
     appid: { type: Number, required: true, unique: true },
     type: { 
@@ -52,6 +61,8 @@ const gameSchema = new mongoose.Schema({
     website: String,
     price: priceSchema,
     price_overview: priceOverviewSchema,
+    metacritic: metacriticSchema,
+    recommendations: recommendationsSchema,
     priceHistory: [priceSchema],
     lastUpdated: { type: Date, default: Date.now }
 });
@@ -61,6 +72,7 @@ gameSchema.index({ 'price_overview.discount_percent': 1 });
 gameSchema.index({ genres: 1 });
 gameSchema.index({ publishers: 1 });
 gameSchema.index({ developers: 1 });
+gameSchema.index({ 'metacritic.score': 1 });
 
 const Game = mongoose.model('Game', gameSchema);
 
