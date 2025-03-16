@@ -1,5 +1,6 @@
 const axios = require('axios');
 const Game = require('../models/Game');
+const GameBlacklist = require('../models/GameBlacklist');
 const logger = require('../utils/logger');
 const { PAGINATION } = require('../config/constants');
 const steamService = require('../services/steamService');
@@ -64,7 +65,8 @@ const getSteamGames = async (req, res) => {
                 game: await Game.countDocuments({ type: 'game' }),
                 dlc: await Game.countDocuments({ type: 'dlc' }),
                 package: await Game.countDocuments({ type: 'package' })
-            }
+            },
+            blacklistedGames: await GameBlacklist.countDocuments()
         };
         
         res.json({
@@ -95,17 +97,20 @@ const checkDifferences = async (req, res) => {
         );
 
         const dbGames = await Game.find({}, { appid: 1, name: 1, _id: 0 });
+        const blacklistedGames = await GameBlacklist.find({}, { appid: 1, _id: 0 });
         
         const steamAppIds = new Set(steamGames.map(g => g.appid));
         const dbAppIds = new Set(dbGames.map(g => g.appid));
+        const blacklistedAppIds = new Set(blacklistedGames.map(g => g.appid));
 
-        const missingInDb = steamGames.filter(g => !dbAppIds.has(g.appid));
+        const missingInDb = steamGames.filter(g => !dbAppIds.has(g.appid) && !blacklistedAppIds.has(g.appid));
         const extraInDb = dbGames.filter(g => !steamAppIds.has(g.appid));
 
         res.json({
             statistics: {
                 totalInSteam: steamGames.length,
                 totalInDb: dbGames.length,
+                totalBlacklisted: blacklistedGames.length,
                 missingInDb: missingInDb.length,
                 extraInDb: extraInDb.length
             },
@@ -170,13 +175,22 @@ const getGameDetails = async (req, res) => {
         
         logger.info(`Fetching details for game with appid: ${appid}`);
         
+        const blacklistedGame = await GameBlacklist.findOne({ appid });
+        if (blacklistedGame) {
+            logger.info(`Game with appid ${appid} is blacklisted. Reason: ${blacklistedGame.reason}`);
+            return res.status(404).json({ 
+                error: 'Juego en lista negra',
+                message: 'Este juego está en la lista negra porque no tiene datos disponibles',
+                reason: blacklistedGame.reason,
+                blacklistedAt: blacklistedGame.createdAt
+            });
+        }
+        
         let game = await Game.findOne({ appid });
         
-        // Migrar datos antiguos al nuevo formato de precios
         if (game && game.price && !game.prices) {
             logger.info(`Migrando datos de price a prices para el juego ${appid}`);
             
-            // Crear el array de precios con el precio de Steam
             game.prices = [{
                 platform: 'steam',
                 currency: game.price.currency,
@@ -188,10 +202,8 @@ const getGameDetails = async (req, res) => {
                 lastChecked: game.price.lastChecked || new Date()
             }];
             
-            // Eliminar el campo price antiguo
             game.price = undefined;
             
-            // Eliminar price_overview si existe
             if (game.price_overview) {
                 game.price_overview = undefined;
             }
@@ -217,28 +229,23 @@ const getGameDetails = async (req, res) => {
                     await game.save();
                     logger.info(`Created new game entry for appid: ${appid}`);
                 } else {
-                    // Si el juego ya existe, actualizar sus propiedades
                     Object.keys(gameDetails).forEach(key => {
                         if (gameDetails[key] !== undefined) {
                             if (key === 'metacritic' || key === 'recommendations') {
                                 game[key] = gameDetails[key];
                                 logger.info(`Updated ${key} information for game ${appid}`);
                             } else if (key === 'prices' && gameDetails.prices && gameDetails.prices.length > 0) {
-                                // Si no hay precios existentes, simplemente asignar los nuevos
                                 if (!game.prices || game.prices.length === 0) {
                                     game.prices = gameDetails.prices;
                                 } else {
-                                    // Para cada precio nuevo, actualizar o agregar al array existente
                                     gameDetails.prices.forEach(newPrice => {
                                         const existingPriceIndex = game.prices.findIndex(
                                             p => p.platform === newPrice.platform
                                         );
                                         
                                         if (existingPriceIndex >= 0) {
-                                            // Actualizar precio existente
                                             game.prices[existingPriceIndex] = newPrice;
                                         } else {
-                                            // Agregar nuevo precio
                                             game.prices.push(newPrice);
                                         }
                                     });
@@ -250,7 +257,6 @@ const getGameDetails = async (req, res) => {
                         }
                     });
                     
-                    // Eliminar campos antiguos si existen
                     if (game.price) game.price = undefined;
                     if (game.price_overview) game.price_overview = undefined;
                     
@@ -261,8 +267,17 @@ const getGameDetails = async (req, res) => {
             } else {
                 logger.warn(`No data available from Steam API for game with appid: ${appid}`);
                 
+                const blacklistedGame = await GameBlacklist.findOne({ appid });
+                if (blacklistedGame) {
+                    return res.status(404).json({ 
+                        error: 'Juego en lista negra',
+                        message: 'Este juego está en la lista negra porque no tiene datos disponibles',
+                        reason: blacklistedGame.reason,
+                        blacklistedAt: blacklistedGame.createdAt
+                    });
+                }
+                
                 if (game) {
-                    // Asegurar que existan las estructuras necesarias
                     if (!game.metacritic) {
                         game.metacritic = { score: null, url: null };
                     }
@@ -272,7 +287,6 @@ const getGameDetails = async (req, res) => {
                     }
                     
                     if (!game.prices || game.prices.length === 0) {
-                        // Si no hay precios, crear un array vacío
                         game.prices = [];
                     }
                     
@@ -298,7 +312,6 @@ const getGameDetails = async (req, res) => {
         
         const gameObject = game.toObject();
         
-        // Limpiar campos innecesarios
         delete gameObject.__v;
         if (gameObject.price) delete gameObject.price;
         if (gameObject.price_overview) delete gameObject.price_overview;
@@ -313,9 +326,73 @@ const getGameDetails = async (req, res) => {
     }
 };
 
+const getBlacklistedGames = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || PAGINATION.DEFAULT_PAGE;
+        const pageSize = Math.min(parseInt(req.query.pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE);
+        
+        const blacklistedGames = await GameBlacklist.find()
+            .skip((page - 1) * pageSize)
+            .limit(pageSize)
+            .sort({ createdAt: -1 });
+            
+        const total = await GameBlacklist.countDocuments();
+        
+        res.json({
+            pagination: {
+                currentPage: page,
+                pageSize: pageSize,
+                totalGames: total,
+                totalPages: Math.ceil(total / pageSize)
+            },
+            blacklistedGames
+        });
+    } catch (error) {
+        logger.error(`Error fetching blacklisted games: ${error.message}`);
+        res.status(500).json({ error: 'Error al obtener juegos en lista negra' });
+    }
+};
+
+const removeFromBlacklist = async (req, res) => {
+    try {
+        const appid = parseInt(req.params.appid);
+        
+        if (!appid || isNaN(appid)) {
+            return res.status(400).json({ 
+                error: 'ID de aplicación inválido',
+                message: 'El ID de aplicación debe ser un número entero válido'
+            });
+        }
+        
+        const result = await GameBlacklist.deleteOne({ appid });
+        
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ 
+                error: 'Juego no encontrado en la lista negra',
+                message: 'No se pudo encontrar el juego especificado en la lista negra'
+            });
+        }
+        
+        logger.info(`Removed game with appid ${appid} from blacklist`);
+        
+        res.json({ 
+            success: true, 
+            message: `Juego con appid ${appid} eliminado de la lista negra` 
+        });
+    } catch (error) {
+        logger.error(`Error removing game from blacklist: ${error.message}`);
+        res.status(500).json({ 
+            error: 'Error al eliminar juego de la lista negra',
+            message: 'Se produjo un error al intentar eliminar el juego de la lista negra'
+        });
+    }
+};
+
 module.exports = {
     getSteamGames,
     checkDifferences,
     getStoredGames,
-    getGameDetails
+    getGameDetails,
+    getBlacklistedGames,
+    removeFromBlacklist
 };

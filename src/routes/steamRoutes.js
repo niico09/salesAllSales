@@ -196,4 +196,56 @@ router.get('/check-differences', steamController.checkDifferences);
  */
 router.get('/stored-games', steamController.getStoredGames);
 
+/**
+ * @swagger
+ * /blacklist:
+ *   get:
+ *     summary: Obtiene la lista de juegos en la lista negra
+ *     description: Retorna una lista paginada de juegos que están en la lista negra
+ *     tags: [Steam]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Número de página
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *         description: Tamaño de página
+ *     responses:
+ *       200:
+ *         description: Lista de juegos en lista negra obtenida correctamente
+ *       500:
+ *         description: Error del servidor
+ */
+router.get('/blacklist', steamController.getBlacklistedGames);
+
+/**
+ * @swagger
+ * /blacklist/{appid}:
+ *   delete:
+ *     summary: Elimina un juego de la lista negra
+ *     description: Elimina un juego específico de la lista negra por su appid
+ *     tags: [Steam]
+ *     parameters:
+ *       - in: path
+ *         name: appid
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID de la aplicación en Steam
+ *     responses:
+ *       200:
+ *         description: Juego eliminado de la lista negra correctamente
+ *       400:
+ *         description: ID de aplicación inválido
+ *       404:
+ *         description: Juego no encontrado en la lista negra
+ *       500:
+ *         description: Error del servidor
+ */
+router.delete('/blacklist/:appid', steamController.removeFromBlacklist);
+
 module.exports = router;

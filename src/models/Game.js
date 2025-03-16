@@ -1,71 +1,110 @@
 const mongoose = require('mongoose');
-const { STEAM_TYPES } = require('../config/steamConstants');
 
 const priceSchema = new mongoose.Schema({
-    currency: { type: String, required: true },
-    initial: { type: Number },
-    final: { type: Number },
-    discount_percent: { type: Number, default: 0 },
-    initial_formatted: { type: String },
-    final_formatted: { type: String },
-    lastChecked: { type: Date, default: Date.now }
-});
+    platform: {
+        type: String,
+        enum: ['steam', 'xbox', 'playstation'],
+        required: true,
+        default: 'steam'
+    },
+    currency: String,
+    initial: Number,
+    final: Number,
+    discount_percent: {
+        type: Number,
+        default: 0
+    },
+    initial_formatted: String,
+    final_formatted: String,
+    lastChecked: {
+        type: Date,
+        default: Date.now
+    }
+}, { _id: false });
 
 const metacriticSchema = new mongoose.Schema({
-    score: { type: Number },
-    url: { type: String }
-});
+    score: Number,
+    url: String
+}, { _id: false });
 
 const recommendationsSchema = new mongoose.Schema({
-    total: { type: Number, default: 0 }
-});
+    total: {
+        type: Number,
+        default: 0
+    }
+}, { _id: false });
 
-const gameSchema = new mongoose.Schema({
-    appid: { type: Number, required: true, unique: true },
-    type: { 
-        type: String, 
-        enum: Object.values(STEAM_TYPES), 
-        default: STEAM_TYPES.UNKNOWN,
+const GameSchema = new mongoose.Schema({
+    appid: {
+        type: Number,
+        required: true,
+        unique: true,
         index: true
     },
-    isMainType: { 
-        type: Boolean, 
-        default: false,
-        index: true
+    type: {
+        type: String,
+        enum: ['game', 'dlc', 'demo', 'application', 'music', 'video', 'hardware', 'package', 'bundle', 'tool', 'unknown'],
+        default: 'unknown'
+    },
+    isMainType: {
+        type: Boolean,
+        default: false
     },
     is_free: {
         type: Boolean,
-        default: false,
+        default: false
+    },
+    name: {
+        type: String,
+        required: true,
         index: true
     },
-    name: { type: String, required: true },
-    required_age: { type: Number },
+    required_age: {
+        type: Number,
+        default: 0
+    },
     developers: [String],
     publishers: [String],
     packages: [Number],
     platforms: {
-        windows: Boolean,
-        mac: Boolean,
-        linux: Boolean
+        windows: {
+            type: Boolean,
+            default: false
+        },
+        mac: {
+            type: Boolean,
+            default: false
+        },
+        linux: {
+            type: Boolean,
+            default: false
+        }
     },
     genres: [String],
     dlc: [Number],
     header_image: String,
     website: String,
-    price: priceSchema,
-    metacritic: metacriticSchema,
-    recommendations: recommendationsSchema,
-    priceHistory: [priceSchema],
-    lastUpdated: { type: Date, default: Date.now }
+    metacritic: {
+        type: metacriticSchema,
+        default: () => ({})
+    },
+    recommendations: {
+        type: recommendationsSchema,
+        default: () => ({})
+    },
+    prices: {
+        type: [priceSchema],
+        default: []
+    },
+    lastUpdated: {
+        type: Date,
+        default: Date.now
+    }
 });
 
-gameSchema.index({ name: 1 });
-gameSchema.index({ 'price.discount_percent': 1 });
-gameSchema.index({ genres: 1 });
-gameSchema.index({ publishers: 1 });
-gameSchema.index({ developers: 1 });
-gameSchema.index({ 'metacritic.score': 1 });
+GameSchema.index({ 'prices.platform': 1 });
+GameSchema.index({ 'prices.discount_percent': 1 });
 
-const Game = mongoose.model('Game', gameSchema);
+const Game = mongoose.model('Game', GameSchema);
 
 module.exports = Game;
