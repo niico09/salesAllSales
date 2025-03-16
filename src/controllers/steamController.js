@@ -166,37 +166,44 @@ const getGameDetails = async (req, res) => {
                 error: 'ID de aplicación inválido',
                 message: 'El ID de aplicación debe ser un número entero válido'
             });
-            logger.warn(`Intento de acceso con ID de aplicación inválido: ${req.params.appid}`);
-            return res.status(400).json({ 
-                error: 'ID de aplicación inválido',
-                message: 'El ID de aplicación debe ser un número entero válido'
-            });
         }
         
         logger.info(`Fetching details for game with appid: ${appid}`);
         
         let game = await Game.findOne({ appid });
         
-        // Migrar datos de price_overview a price si existe el campo antiguo
-        if (game && game.price_overview && !game.price) {
-            logger.info(`Migrando datos de price_overview a price para el juego ${appid}`);
-            game.price = {
-                currency: game.price_overview.currency,
-                initial: game.price_overview.initial / 100,
-                final: game.price_overview.final / 100,
-                discount_percent: game.price_overview.discount_percent,
-                initial_formatted: game.price_overview.initial_formatted,
-                final_formatted: game.price_overview.final_formatted,
-                lastChecked: new Date()
-            };
-            game.price_overview = undefined;
+        // Migrar datos antiguos al nuevo formato de precios
+        if (game && game.price && !game.prices) {
+            logger.info(`Migrando datos de price a prices para el juego ${appid}`);
+            
+            // Crear el array de precios con el precio de Steam
+            game.prices = [{
+                platform: 'steam',
+                currency: game.price.currency,
+                initial: game.price.initial,
+                final: game.price.final,
+                discount_percent: game.price.discount_percent,
+                initial_formatted: game.price.initial_formatted,
+                final_formatted: game.price.final_formatted,
+                lastChecked: game.price.lastChecked || new Date()
+            }];
+            
+            // Eliminar el campo price antiguo
+            game.price = undefined;
+            
+            // Eliminar price_overview si existe
+            if (game.price_overview) {
+                game.price_overview = undefined;
+            }
+            
             await game.save();
-            logger.info(`Migración completada para el juego ${appid}`);
+            logger.info(`Migración a nuevo formato de precios completada para el juego ${appid}`);
         }
         
         const needsUpdate = !game || 
                            !game.metacritic || 
                            !game.recommendations ||
+                           !game.prices ||
                            (game.lastUpdated && (new Date() - new Date(game.lastUpdated)) > (24 * 60 * 60 * 1000));
         
         if (needsUpdate) {
@@ -210,28 +217,44 @@ const getGameDetails = async (req, res) => {
                     await game.save();
                     logger.info(`Created new game entry for appid: ${appid}`);
                 } else {
-                    const updatedGame = { ...game.toObject() };
-                    
+                    // Si el juego ya existe, actualizar sus propiedades
                     Object.keys(gameDetails).forEach(key => {
                         if (gameDetails[key] !== undefined) {
-                            if ((key === 'metacritic' || key === 'recommendations' || key === 'price') && gameDetails[key]) {
-                                updatedGame[key] = gameDetails[key];
+                            if (key === 'metacritic' || key === 'recommendations') {
                                 game[key] = gameDetails[key];
                                 logger.info(`Updated ${key} information for game ${appid}`);
+                            } else if (key === 'prices' && gameDetails.prices && gameDetails.prices.length > 0) {
+                                // Si no hay precios existentes, simplemente asignar los nuevos
+                                if (!game.prices || game.prices.length === 0) {
+                                    game.prices = gameDetails.prices;
+                                } else {
+                                    // Para cada precio nuevo, actualizar o agregar al array existente
+                                    gameDetails.prices.forEach(newPrice => {
+                                        const existingPriceIndex = game.prices.findIndex(
+                                            p => p.platform === newPrice.platform
+                                        );
+                                        
+                                        if (existingPriceIndex >= 0) {
+                                            // Actualizar precio existente
+                                            game.prices[existingPriceIndex] = newPrice;
+                                        } else {
+                                            // Agregar nuevo precio
+                                            game.prices.push(newPrice);
+                                        }
+                                    });
+                                }
+                                logger.info(`Updated prices information for game ${appid}`);
                             } else {
-                                updatedGame[key] = gameDetails[key];
                                 game[key] = gameDetails[key];
                             }
                         }
                     });
                     
-                    // Eliminar el campo price_overview si existe
-                    if (game.price_overview) {
-                        game.price_overview = undefined;
-                    }
+                    // Eliminar campos antiguos si existen
+                    if (game.price) game.price = undefined;
+                    if (game.price_overview) game.price_overview = undefined;
                     
                     game.lastUpdated = new Date();
-                    
                     await game.save();
                     logger.info(`Updated existing game entry for appid: ${appid}`);
                 }
@@ -239,6 +262,7 @@ const getGameDetails = async (req, res) => {
                 logger.warn(`No data available from Steam API for game with appid: ${appid}`);
                 
                 if (game) {
+                    // Asegurar que existan las estructuras necesarias
                     if (!game.metacritic) {
                         game.metacritic = { score: null, url: null };
                     }
@@ -247,12 +271,15 @@ const getGameDetails = async (req, res) => {
                         game.recommendations = { total: 0 };
                     }
                     
+                    if (!game.prices || game.prices.length === 0) {
+                        // Si no hay precios, crear un array vacío
+                        game.prices = [];
+                    }
+                    
                     await game.save();
-                    logger.info(`Added empty metacritic and recommendations structures for game ${appid}`);
+                    logger.info(`Added empty structures for game ${appid}`);
                 } else {
                     return res.status(404).json({ 
-                        error: 'Juego no encontrado',
-                        message: 'No se pudo encontrar información para este juego en la API de Steam',
                         error: 'Juego no encontrado',
                         message: 'No se pudo encontrar información para este juego en la API de Steam'
                     });
@@ -267,28 +294,18 @@ const getGameDetails = async (req, res) => {
                 error: 'Juego no encontrado',
                 message: 'No se pudo encontrar el juego solicitado en la base de datos'
             });
-            return res.status(404).json({ 
-                error: 'Juego no encontrado',
-                message: 'No se pudo encontrar el juego solicitado en la base de datos'
-            });
         }
         
         const gameObject = game.toObject();
         
+        // Limpiar campos innecesarios
         delete gameObject.__v;
-        
-        // Eliminar el campo price_overview de la respuesta si existe
-        if (gameObject.price_overview) {
-            delete gameObject.price_overview;
-        }
+        if (gameObject.price) delete gameObject.price;
+        if (gameObject.price_overview) delete gameObject.price_overview;
         
         res.json(gameObject);
     } catch (error) {
         logger.error(`Error fetching game details: ${error.message}`);
-        res.status(500).json({ 
-            error: 'Error al obtener detalles del juego',
-            message: 'Se produjo un error al recuperar los detalles del juego solicitado'
-        });
         res.status(500).json({ 
             error: 'Error al obtener detalles del juego',
             message: 'Se produjo un error al recuperar los detalles del juego solicitado'

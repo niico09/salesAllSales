@@ -55,7 +55,13 @@ class SteamService {
 
         const metacritic = this._processMetacriticData(data.metacritic);
         const recommendations = this._processRecommendationsData(data.recommendations);
-        const price = !is_free ? this._processPriceData(data.price_overview) : null;
+        const steamPrice = !is_free ? this._processPriceData(data.price_overview, 'steam') : null;
+        
+        // Crear array de precios con el precio de Steam si existe
+        const prices = [];
+        if (steamPrice) {
+            prices.push(steamPrice);
+        }
 
         return {
             appid,
@@ -74,7 +80,7 @@ class SteamService {
             website: data.website || '',
             metacritic,
             recommendations,
-            price,
+            prices,
             lastUpdated: new Date()
         };
     }
@@ -105,10 +111,11 @@ class SteamService {
         };
     }
 
-    _processPriceData(priceOverview) {
+    _processPriceData(priceOverview, platform) {
         if (!priceOverview) return null;
 
         return {
+            platform: platform || 'steam',
             currency: priceOverview.currency,
             initial: priceOverview.initial ? priceOverview.initial / 100 : null,
             final: priceOverview.final ? priceOverview.final / 100 : null,
@@ -117,6 +124,19 @@ class SteamService {
             final_formatted: priceOverview.final_formatted || '',
             lastChecked: new Date()
         };
+    }
+
+    // Método para actualizar precios de otras plataformas (a implementar en el futuro)
+    async updateXboxPrice(appid, gameTitle) {
+        // Implementación futura para obtener precios de Xbox
+        logger.info(`Function to get Xbox prices for ${gameTitle} (${appid}) will be implemented in the future`);
+        return null;
+    }
+
+    async updatePlaystationPrice(appid, gameTitle) {
+        // Implementación futura para obtener precios de PlayStation
+        logger.info(`Function to get PlayStation prices for ${gameTitle} (${appid}) will be implemented in the future`);
+        return null;
     }
 }
 
