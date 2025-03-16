@@ -52,11 +52,31 @@ class SteamService {
                 throw new Error('Invalid game data');
             }
 
+            const validationResult = this._validateGameData(appid, data);
+            if (!validationResult.isValid) {
+                await this._addToBlacklist(appid, `Invalid game data: ${validationResult.reason}`);
+                logger.warn(`Game ${appid} has invalid data: ${validationResult.reason}`);
+                return null;
+            }
+
             return this._processGameData(appid, name, data);
         } catch (error) {
             logger.error(`Error getting details for game ${appid}: ${error.message}`);
             return null;
         }
+    }
+
+    _validateGameData(appid, data) {
+        if (data.required_age !== undefined) {
+            if (typeof data.required_age === 'string' && data.required_age.includes('javascript:')) {
+                return {
+                    isValid: false,
+                    reason: `Invalid required_age format (contains JavaScript code): ${data.required_age}`
+                };
+            }
+        }
+
+        return { isValid: true };
     }
 
     async _checkIfBlacklisted(appid) {
@@ -98,19 +118,34 @@ class SteamService {
             prices.push(steamPrice);
         }
 
+        let required_age = 0;
+        
+        if (data.required_age !== undefined) {
+            if (typeof data.required_age === 'number') {
+                required_age = data.required_age;
+            } else if (typeof data.required_age === 'string') {
+                const parsedAge = parseInt(data.required_age);
+                if (!isNaN(parsedAge)) {
+                    required_age = parsedAge;
+                } else {
+                    logger.debug(`Non-numeric required_age for game ${appid}, defaulting to 0: ${data.required_age}`);
+                }
+            }
+        }
+
         return {
             appid,
             type: data.type || STEAM_TYPES.UNKNOWN,
             isMainType,
             is_free,
             name: data.name || name,
-            required_age: data.required_age || 0,
-            developers: data.developers || [],
-            publishers: data.publishers || [],
-            packages: data.packages || [],
+            required_age,
+            developers: Array.isArray(data.developers) ? data.developers : [],
+            publishers: Array.isArray(data.publishers) ? data.publishers : [],
+            packages: Array.isArray(data.packages) ? data.packages : [],
             platforms: data.platforms || {},
-            genres: (data.genres || []).map(g => g.description),
-            dlc: data.dlc || [],
+            genres: Array.isArray(data.genres) ? data.genres.map(g => g.description || g) : [],
+            dlc: Array.isArray(data.dlc) ? data.dlc : [],
             header_image: data.header_image || '',
             website: data.website || '',
             metacritic,

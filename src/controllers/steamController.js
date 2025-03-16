@@ -27,14 +27,22 @@ const getSteamGames = async (req, res) => {
         logger.info(`Found ${filteredGames.length} games, returning ${paginatedGames.length} games for page ${page}`);
         
         for (const game of paginatedGames) {
-            const existingGame = await Game.findOne({ appid: game.appid });
-            
-            if (!existingGame) {
-                logger.info(`Saving new game to database: ${game.name} (${game.appid})`);
-                await new Game({
-                    appid: game.appid,
-                    name: game.name
-                }).save();
+            try {
+                const existingGame = await Game.findOne({ appid: game.appid });
+                
+                if (!existingGame) {
+                    logger.info(`Saving new game to database: ${game.name} (${game.appid})`);
+                    await new Game({
+                        appid: game.appid,
+                        name: game.name
+                    }).save();
+                }
+            } catch (error) {
+                if (error.code === 11000) {
+                    logger.warn(`Intento de guardar juego duplicado: ${game.name} (${game.appid})`);
+                } else {
+                    logger.error(`Error guardando el juego ${game.appid}: ${error.message}`);
+                }
             }
         }
         
@@ -163,166 +171,120 @@ const getStoredGames = async (req, res) => {
 
 const getGameDetails = async (req, res) => {
     try {
-        const appid = parseInt(req.params.appid);
+        const { appid } = req.params;
         
-        if (!appid || isNaN(appid)) {
-            logger.warn(`Intento de acceso con ID de aplicación inválido: ${req.params.appid}`);
-            return res.status(400).json({ 
-                error: 'ID de aplicación inválido',
-                message: 'El ID de aplicación debe ser un número entero válido'
-            });
+        if (!appid) {
+            return res.status(400).json({ message: 'AppID is required' });
         }
+
+        const existingGame = await Game.findOne({ appid });
+        const gameDetails = await steamService.getGameDetails(appid, existingGame?.name || '');
         
-        logger.info(`Fetching details for game with appid: ${appid}`);
-        
-        const blacklistedGame = await GameBlacklist.findOne({ appid });
-        if (blacklistedGame) {
-            logger.info(`Game with appid ${appid} is blacklisted. Reason: ${blacklistedGame.reason}`);
-            return res.status(404).json({ 
-                error: 'Juego en lista negra',
-                message: 'Este juego está en la lista negra porque no tiene datos disponibles',
-                reason: blacklistedGame.reason,
-                blacklistedAt: blacklistedGame.createdAt
-            });
+        if (!gameDetails) {
+            return res.status(404).json({ message: 'Game not found or no data available' });
         }
-        
-        let game = await Game.findOne({ appid });
-        
-        if (game && game.price && !game.prices) {
-            logger.info(`Migrando datos de price a prices para el juego ${appid}`);
-            
-            game.prices = [{
-                platform: 'steam',
-                currency: game.price.currency,
-                initial: game.price.initial,
-                final: game.price.final,
-                discount_percent: game.price.discount_percent,
-                initial_formatted: game.price.initial_formatted,
-                final_formatted: game.price.final_formatted,
-                lastChecked: game.price.lastChecked || new Date()
-            }];
-            
-            game.price = undefined;
-            
-            if (game.price_overview) {
-                game.price_overview = undefined;
+
+        try {
+            if (existingGame) {
+                const updatedGame = await _updateExistingGame(existingGame, gameDetails);
+                return res.json(updatedGame);
+            } else {
+                const newGame = new Game(gameDetails);
+                await newGame.save();
+                return res.json(newGame);
+            }
+        } catch (saveError) {
+            if (saveError.name === 'ValidationError') {
+                logger.error(`Validation error for game ${appid}: ${saveError.message}`);
+                
+                if (saveError.message.includes('required_age')) {
+                    await GameBlacklist.findOneAndUpdate(
+                        { appid: parseInt(appid) },
+                        { 
+                            appid: parseInt(appid), 
+                            reason: `Validation error: ${saveError.message}`,
+                            createdAt: new Date()
+                        },
+                        { upsert: true, new: true }
+                    );
+                    logger.info(`Added game ${appid} to blacklist due to validation error`);
+                }
+                
+                return res.status(400).json({ 
+                    message: 'Invalid game data', 
+                    error: saveError.message 
+                });
             }
             
-            await game.save();
-            logger.info(`Migración a nuevo formato de precios completada para el juego ${appid}`);
+            if (saveError.code === 11000) {
+                logger.warn(`Duplicate key error for game ${appid}, attempting update`);
+                try {
+                    const updatedGame = await Game.findOneAndUpdate(
+                        { appid: gameDetails.appid },
+                        { $set: gameDetails },
+                        { new: true }
+                    );
+                    return res.json(updatedGame);
+                } catch (updateError) {
+                    logger.error(`Error updating game ${appid}: ${updateError.message}`);
+                    return res.status(500).json({ message: 'Error updating game' });
+                }
+            }
+            
+            logger.error(`Error saving game ${appid}: ${saveError.message}`);
+            return res.status(500).json({ message: 'Error saving game' });
         }
-        
-        const needsUpdate = !game || 
-                           !game.metacritic || 
-                           !game.recommendations ||
-                           !game.prices ||
-                           (game.lastUpdated && (new Date() - new Date(game.lastUpdated)) > (24 * 60 * 60 * 1000));
-        
-        if (needsUpdate) {
-            logger.info(`Game not found or data is outdated. Updating from Steam API for appid: ${appid}`);
-            
-            const gameDetails = await steamService.getGameDetails(appid, game ? game.name : 'Unknown');
-            
-            if (gameDetails) {
-                if (!game) {
-                    game = new Game(gameDetails);
-                    await game.save();
-                    logger.info(`Created new game entry for appid: ${appid}`);
+    } catch (error) {
+        logger.error(`Error in getGameDetails: ${error.message}`);
+        return res.status(500).json({ message: 'Server error' });
+    }
+};
+
+const _updateExistingGame = async (existingGame, newGameData) => {
+    Object.keys(newGameData).forEach(key => {
+        if (newGameData[key] !== undefined) {
+            if (key === 'metacritic' || key === 'recommendations') {
+                existingGame[key] = newGameData[key];
+            } else if (key === 'prices' && newGameData.prices && newGameData.prices.length > 0) {
+                if (!existingGame.prices || existingGame.prices.length === 0) {
+                    existingGame.prices = newGameData.prices;
                 } else {
-                    Object.keys(gameDetails).forEach(key => {
-                        if (gameDetails[key] !== undefined) {
-                            if (key === 'metacritic' || key === 'recommendations') {
-                                game[key] = gameDetails[key];
-                                logger.info(`Updated ${key} information for game ${appid}`);
-                            } else if (key === 'prices' && gameDetails.prices && gameDetails.prices.length > 0) {
-                                if (!game.prices || game.prices.length === 0) {
-                                    game.prices = gameDetails.prices;
-                                } else {
-                                    gameDetails.prices.forEach(newPrice => {
-                                        const existingPriceIndex = game.prices.findIndex(
-                                            p => p.platform === newPrice.platform
-                                        );
-                                        
-                                        if (existingPriceIndex >= 0) {
-                                            game.prices[existingPriceIndex] = newPrice;
-                                        } else {
-                                            game.prices.push(newPrice);
-                                        }
-                                    });
-                                }
-                                logger.info(`Updated prices information for game ${appid}`);
-                            } else {
-                                game[key] = gameDetails[key];
-                            }
+                    newGameData.prices.forEach(newPrice => {
+                        const existingPriceIndex = existingGame.prices.findIndex(
+                            p => p.platform === newPrice.platform
+                        );
+                        
+                        if (existingPriceIndex >= 0) {
+                            existingGame.prices[existingPriceIndex] = newPrice;
+                        } else {
+                            existingGame.prices.push(newPrice);
                         }
                     });
-                    
-                    if (game.price) game.price = undefined;
-                    if (game.price_overview) game.price_overview = undefined;
-                    
-                    game.lastUpdated = new Date();
-                    await game.save();
-                    logger.info(`Updated existing game entry for appid: ${appid}`);
                 }
             } else {
-                logger.warn(`No data available from Steam API for game with appid: ${appid}`);
-                
-                const blacklistedGame = await GameBlacklist.findOne({ appid });
-                if (blacklistedGame) {
-                    return res.status(404).json({ 
-                        error: 'Juego en lista negra',
-                        message: 'Este juego está en la lista negra porque no tiene datos disponibles',
-                        reason: blacklistedGame.reason,
-                        blacklistedAt: blacklistedGame.createdAt
-                    });
-                }
-                
-                if (game) {
-                    if (!game.metacritic) {
-                        game.metacritic = { score: null, url: null };
-                    }
-                    
-                    if (!game.recommendations) {
-                        game.recommendations = { total: 0 };
-                    }
-                    
-                    if (!game.prices || game.prices.length === 0) {
-                        game.prices = [];
-                    }
-                    
-                    await game.save();
-                    logger.info(`Added empty structures for game ${appid}`);
-                } else {
-                    return res.status(404).json({ 
-                        error: 'Juego no encontrado',
-                        message: 'No se pudo encontrar información para este juego en la API de Steam'
-                    });
-                }
+                existingGame[key] = newGameData[key];
             }
         }
-        
-        game = await Game.findOne({ appid });
-        
-        if (!game) {
-            return res.status(404).json({ 
-                error: 'Juego no encontrado',
-                message: 'No se pudo encontrar el juego solicitado en la base de datos'
-            });
-        }
-        
-        const gameObject = game.toObject();
-        
-        delete gameObject.__v;
-        if (gameObject.price) delete gameObject.price;
-        if (gameObject.price_overview) delete gameObject.price_overview;
-        
-        res.json(gameObject);
+    });
+    
+    if (existingGame.price) existingGame.price = undefined;
+    if (existingGame.price_overview) existingGame.price_overview = undefined;
+    
+    existingGame.lastUpdated = new Date();
+    
+    try {
+        await existingGame.save();
+        logger.info(`Updated existing game entry for appid: ${existingGame.appid}`);
+        return existingGame;
     } catch (error) {
-        logger.error(`Error fetching game details: ${error.message}`);
-        res.status(500).json({ 
-            error: 'Error al obtener detalles del juego',
-            message: 'Se produjo un error al recuperar los detalles del juego solicitado'
-        });
+        if (error.code === 11000) {
+            logger.warn(`Duplicate key error when updating game ${existingGame.appid}. Attempting updateOne instead.`);
+            const updateData = existingGame.toObject();
+            delete updateData._id;
+            await Game.updateOne({ appid: existingGame.appid }, updateData);
+            return await Game.findOne({ appid: existingGame.appid });
+        }
+        throw error;
     }
 };
 
@@ -394,5 +356,6 @@ module.exports = {
     getStoredGames,
     getGameDetails,
     getBlacklistedGames,
-    removeFromBlacklist
+    removeFromBlacklist,
+    _updateExistingGame
 };
