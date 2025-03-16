@@ -10,7 +10,7 @@ const options = {
     info: {
       title: 'SalesAllSales API',
       version: '1.0.0',
-      description: 'API for managing Steam games information',
+      description: 'API for managing Steam games information and Twitter integration',
       contact: {
         name: 'Support',
         email: 'support@salesallsales.com'
@@ -80,6 +80,38 @@ const options = {
             }
           }
         },
+        TwitterCredential: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              description: 'Identificador único del usuario'
+            },
+            accessToken: {
+              type: 'string',
+              description: 'Token de acceso para la API de Twitter'
+            },
+            refreshToken: {
+              type: 'string',
+              description: 'Token de actualización para renovar el access token'
+            },
+            tokenExpiry: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Fecha de expiración del token de acceso'
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Fecha de creación del registro'
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Fecha de última actualización del registro'
+            }
+          }
+        },
         PaginationResponse: {
           type: 'object',
           properties: {
@@ -104,7 +136,7 @@ const options = {
       }
     }
   },
-  apis: ['./src/routes/*.js']
+  apis: ['./src/routes/*.js', './src/controllers/*.js', './src/models/*.js']
 };
 
 const specs = swaggerJsdoc(options);

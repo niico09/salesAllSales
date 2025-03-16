@@ -14,12 +14,14 @@ Este proyecto tiene como objetivo centralizar y comparar los precios y descuento
 - Actualización automática de precios y descuentos
 - Exclusión automática de juegos sin categorizar o tipo desconocido
 - Historial de precios para seguimiento de ofertas
+- Integración con Twitter para compartir ofertas
 
 ## Requisitos
 
 - Node.js 18 o superior
 - MongoDB
 - Variables de entorno configuradas (ver .env.example)
+- Cuenta de desarrollador de Twitter (para la funcionalidad de compartir)
 
 ## Instalación
 
@@ -72,6 +74,27 @@ Parámetros de query:
 - `minDiscount`: Filtrar por descuento mínimo
 - `maxDiscount`: Filtrar por descuento máximo
 - `isFree`: Filtrar juegos gratuitos
+
+## Integración con Twitter API
+
+Se ha implementado la funcionalidad para publicar tweets utilizando la API de Twitter v2 con OAuth 2.0. Esta integración permite a los usuarios autorizar la aplicación para publicar tweets en su nombre.
+
+### Características principales
+
+- Autorización OAuth 2.0 para acceder a la cuenta de Twitter del usuario
+- Publicación de tweets desde la aplicación
+- Verificación del estado de autorización
+- Almacenamiento seguro de tokens de acceso
+- Renovación automática de tokens expirados
+
+### Endpoints disponibles
+
+- `GET /api/twitter/auth` - Inicia el proceso de autorización
+- `GET /api/twitter/callback` - Maneja el callback de autorización
+- `POST /api/twitter/tweet` - Publica un tweet
+- `GET /api/twitter/status` - Verifica el estado de autorización
+
+Para más detalles sobre la configuración y uso, consulta la [Guía de Integración con Twitter API](./docs/twitter-api-guide.md).
 
 ## Contribuir
 
