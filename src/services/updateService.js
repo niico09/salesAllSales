@@ -1,111 +1,208 @@
 const cron = require('node-cron');
 const Game = require('../models/Game');
 const SteamService = require('./steamService');
+const logger = require('../utils/logger');
 
 class UpdateService {
     constructor() {
         this.requestDelay = 1000;
+        this.concurrencyLimit = 5;
     }
 
     async updateGameDetails(game) {
         try {
-            const updatedGameData = await SteamService.getGameDetails(game.appid);
-            if (updatedGameData) {
-                if (this.hasPriceChanged(game, updatedGameData)) {
-                    if (game.price) {
-                        if (!game.priceHistory) game.priceHistory = [];
-                        game.priceHistory.push(game.price);
-                    }
-                }
-
-                Object.assign(game, updatedGameData);
-                game.lastUpdated = new Date();
-                await game.save();
-                console.log(`Juego actualizado exitosamente: ${game.name} (${game.appid})`);
+            const updatedGameData = await SteamService.getGameDetails(game.appid, game.name);
+            if (!updatedGameData) {
+                logger.warn(`No data available for game ${game.name} (${game.appid})`);
+                return null;
             }
+
+            if (this.hasPriceChanged(game, updatedGameData)) {
+                await Game.updateOne(
+                    { _id: game._id },
+                    { 
+                        $push: { priceHistory: game.price },
+                        $set: { 
+                            ...updatedGameData,
+                            lastUpdated: new Date()
+                        }
+                    },
+                    { 
+                        writeConcern: { w: 1 },
+                        bypassDocumentValidation: true
+                    }
+                );
+            } else {
+                await Game.updateOne(
+                    { _id: game._id },
+                    { 
+                        $set: { 
+                            ...updatedGameData,
+                            lastUpdated: new Date()
+                        }
+                    },
+                    { 
+                        writeConcern: { w: 1 },
+                        bypassDocumentValidation: true
+                    }
+                );
+            }
+            
+            logger.info(`Game updated successfully: ${game.name} (${game.appid})`);
+            return game;
         } catch (error) {
-            console.error(`Error actualizando el juego ${game.appid}:`, error.message);
+            logger.error(`Error updating game ${game.appid}: ${error.message}`);
+            return null;
         }
     }
 
     hasPriceChanged(oldGame, newGame) {
-        if (!oldGame.price_overview && !newGame.price_overview) return false;
-        if (!oldGame.price_overview || !newGame.price_overview) return true;
+        if (!oldGame.price && !newGame.price) return false;
+        if (!oldGame.price || !newGame.price) return true;
         
-        return oldGame.price_overview.final !== newGame.price_overview.final ||
-               oldGame.price_overview.initial !== newGame.price_overview.initial ||
-               oldGame.price_overview.discount_percent !== newGame.price_overview.discount_percent;
+        return oldGame.price.final !== newGame.price.final ||
+               oldGame.price.initial !== newGame.price.initial ||
+               oldGame.price.discount_percent !== newGame.price.discount_percent;
+    }
+
+    async processBatchWithConcurrency(items, asyncFn) {
+        const results = [];
+        const inProgress = new Set();
+        let index = 0;
+
+        return new Promise((resolve) => {
+            const processNext = async () => {
+                if (index >= items.length && inProgress.size === 0) {
+                    return resolve(results);
+                }
+
+                while (index < items.length && inProgress.size < this.concurrencyLimit) {
+                    const currentIndex = index++;
+                    const item = items[currentIndex];
+                    
+                    inProgress.add(currentIndex);
+                    
+                    asyncFn(item).then(result => {
+                        results[currentIndex] = result;
+                        inProgress.delete(currentIndex);
+                        processNext();
+                    }).catch(error => {
+                        logger.error(`Error processing item at index ${currentIndex}: ${error.message}`);
+                        results[currentIndex] = null;
+                        inProgress.delete(currentIndex);
+                        processNext();
+                    });
+                }
+            };
+
+            processNext();
+        });
     }
 
     async syncNewGames() {
         try {
-            console.log('Iniciando sincronización de nuevos juegos...');
+            logger.info('Starting synchronization of new games...');
             
             const steamGames = await SteamService.getGamesList();
             
-            const existingGames = await Game.find({}, { appid: 1 });
-            const existingIds = new Set(existingGames.map(g => g.appid));
+            const existingIds = await Game.distinct('appid');
+            const existingIdsSet = new Set(existingIds);
             
-            const newGames = steamGames.filter(game => !existingIds.has(game.appid));
+            const newGames = steamGames.filter(game => !existingIdsSet.has(game.appid));
             
             if (newGames.length === 0) {
-                console.log('No se encontraron juegos nuevos para agregar.');
+                logger.info('No new games found to add.');
                 return [];
             }
             
-            console.log(`Encontrados ${newGames.length} juegos nuevos. Obteniendo detalles...`);
+            logger.info(`Found ${newGames.length} new games. Getting details...`);
             
-            const savedGames = [];
-            for (const game of newGames) {
+            const processGameDetails = async (game) => {
                 try {
-                    const gameDetails = await SteamService.getGameDetails(game.appid);
-                    if (gameDetails) {
-                        const newGame = new Game(gameDetails);
-                        await newGame.save();
-                        savedGames.push(newGame);
-                        console.log(`Guardado nuevo juego: ${game.name} (${game.appid})`);
-                    }
-                    await new Promise(resolve => setTimeout(resolve, this.requestDelay));
+                    const gameDetails = await SteamService.getGameDetails(game.appid, game.name);
+                    if (!gameDetails) return null;
+                    
+                    const newGame = new Game(gameDetails);
+                    await newGame.save({
+                        writeConcern: { w: 0 },
+                        bypassDocumentValidation: true,
+                        ordered: false
+                    });
+                    
+                    logger.info(`Saved new game: ${game.name} (${game.appid})`);
+                    return newGame;
                 } catch (error) {
-                    console.error(`Error guardando el juego ${game.appid}:`, error.message);
+                    logger.error(`Error saving game ${game.appid}: ${error.message}`);
+                    return null;
                 }
-            }
+            };
             
-            console.log(`Sincronización completada. Guardados ${savedGames.length} juegos nuevos.`);
-            return savedGames;
+            const savedGames = await this.processBatchWithConcurrency(newGames, processGameDetails);
+            const validSavedGames = savedGames.filter(game => game !== null);
+            
+            logger.info(`Synchronization completed. Saved ${validSavedGames.length} new games.`);
+            return validSavedGames;
         } catch (error) {
-            console.error('Error en la sincronización de nuevos juegos:', error);
+            logger.error(`Error in new games synchronization: ${error.message}`);
             throw error;
         }
     }
 
     async updateAllGames() {
         try {
-            console.log('Iniciando actualización de todos los juegos...');
+            logger.info('Starting update of all games...');
             
             await this.syncNewGames();
             
-            const games = await Game.find({});
+            const BATCH_SIZE = 100;
+            let skip = 0;
+            let hasMore = true;
             
-            for (const game of games) {
-                await this.updateGameDetails(game);
-                await new Promise(resolve => setTimeout(resolve, this.requestDelay));
+            while (hasMore) {
+                const games = await Game.find({})
+                    .sort({ lastUpdated: 1 })
+                    .skip(skip)
+                    .limit(BATCH_SIZE)
+                    .lean();
+                
+                if (games.length === 0) {
+                    hasMore = false;
+                    break;
+                }
+                
+                logger.info(`Processing batch of ${games.length} games (skip: ${skip})`);
+                
+                await this.processBatchWithConcurrency(games, (game) => this.updateGameDetails(game));
+                
+                skip += BATCH_SIZE;
             }
             
-            console.log('Actualización de juegos completada');
+            logger.info('Game update completed successfully');
         } catch (error) {
-            console.error('Error en la actualización masiva:', error.message);
+            logger.error(`Error in mass update: ${error.message}`);
         }
     }
 
     startUpdateCron() {
         this.updateAllGames();
-        cron.schedule('0 */2 * * *', () => {
-            console.log('Iniciando actualización programada...');
+        
+        const cronSchedule = process.env.UPDATE_CRON_SCHEDULE || '0 */2 * * *';
+        cron.schedule(cronSchedule, () => {
+            logger.info('Starting scheduled update...');
             this.updateAllGames();
         });
         
-        console.log('Cronjob de actualización configurado para ejecutarse cada 2 horas');
+        logger.info(`Update cronjob configured to run with schedule: ${cronSchedule}`);
+    }
+
+    async createIndexesInBackground() {
+        try {
+            logger.info('Creating indexes in background...');
+            await Game.createIndexes({ background: true });
+            logger.info('Indexes created successfully');
+        } catch (error) {
+            logger.error(`Error creating indexes: ${error.message}`);
+        }
     }
 }
 

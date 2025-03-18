@@ -1,78 +1,52 @@
-/**
- * Logger utility for application-wide logging
- * Follows clean code practices and provides descriptive log messages
- */
+const winston = require('winston');
+const path = require('path');
+const fs = require('fs');
 
-/**
- * Log levels
- * @enum {string}
- */
-const LOG_LEVELS = {
-  ERROR: 'ERROR',
-  WARN: 'WARN',
-  INFO: 'INFO',
-  DEBUG: 'DEBUG'
-};
+const logsDir = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
 
-/**
- * Current log level
- * Can be set via environment variable
- */
-const currentLogLevel = process.env.LOG_LEVEL || LOG_LEVELS.INFO;
+const logFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.errors({ stack: true }),
+  winston.format.splat(),
+  winston.format.json()
+);
 
-/**
- * Format log message with timestamp and level
- * @param {string} level - Log level
- * @param {string} message - Log message
- * @returns {string} Formatted log message
- */
-const formatLogMessage = (level, message) => {
-  const timestamp = new Date().toISOString();
-  return `[${timestamp}] [${level}] ${message}`;
-};
+const consoleFormat = winston.format.combine(
+  winston.format.colorize(),
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.printf(
+    (info) => `[${info.timestamp}] [${info.level}]: ${info.message}${info.stack ? `\n${info.stack}` : ''}`
+  )
+);
 
-/**
- * Log error message
- * @param {string} message - Error message
- */
-const error = (message) => {
-  console.error(formatLogMessage(LOG_LEVELS.ERROR, message));
-};
+const logLevel = process.env.LOG_LEVEL || 'info';
 
-/**
- * Log warning message
- * @param {string} message - Warning message
- */
-const warn = (message) => {
-  if ([LOG_LEVELS.WARN, LOG_LEVELS.INFO, LOG_LEVELS.DEBUG].includes(currentLogLevel)) {
-    console.warn(formatLogMessage(LOG_LEVELS.WARN, message));
-  }
-};
+const logger = winston.createLogger({
+  level: logLevel,
+  format: logFormat,
+  defaultMeta: { service: 'sales-all-sales' },
+  transports: [
+    new winston.transports.File({
+      filename: path.join(logsDir, 'error.log'),
+      level: 'error',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5
+    }),
+    new winston.transports.File({
+      filename: path.join(logsDir, 'combined.log'),
+      maxsize: 5242880, // 5MB
+      maxFiles: 5
+    })
+  ]
+});
 
-/**
- * Log info message
- * @param {string} message - Info message
- */
-const info = (message) => {
-  if ([LOG_LEVELS.INFO, LOG_LEVELS.DEBUG].includes(currentLogLevel)) {
-    console.info(formatLogMessage(LOG_LEVELS.INFO, message));
-  }
-};
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: consoleFormat
+  }));
+}
 
-/**
- * Log debug message
- * @param {string} message - Debug message
- */
-const debug = (message) => {
-  if (currentLogLevel === LOG_LEVELS.DEBUG) {
-    console.debug(formatLogMessage(LOG_LEVELS.DEBUG, message));
-  }
-};
-
-module.exports = {
-  error,
-  warn,
-  info,
-  debug,
-  LOG_LEVELS
-};
+module.exports = logger;

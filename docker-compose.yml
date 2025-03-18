@@ -3,32 +3,60 @@ version: '3.8'
 services:
   app:
     build: .
+    container_name: sales-all-sales-app
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
+      - NODE_ENV=production
       - STEAM_API_KEY=${STEAM_API_KEY}
       - PORT=3000
       - MONGODB_URI=mongodb://mongodb:27017/salesAllSales
+      - CORS_ORIGIN=http://localhost:3000
+      - LOG_LEVEL=info
+      - MONGO_MAX_POOL_SIZE=10
+      - MONGO_MIN_POOL_SIZE=2
+      - MONGO_MAX_RETRIES=5
+      - MONGO_RETRY_INTERVAL=1000
     depends_on:
       - mongodb
     volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
+      - ./logs:/usr/src/app/logs
     networks:
       - steam-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   mongodb:
     image: mongo:latest
+    container_name: sales-all-sales-mongodb
+    restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    environment:
+      - MONGO_INITDB_DATABASE=salesAllSales
     networks:
       - steam-network
+    command: ["--wiredTigerCacheSizeGB", "1"]
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo mongodb:27017/salesAllSales --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   mongodb_data:
+    name: sales-all-sales-mongodb-data
 
 networks:
   steam-network:
     driver: bridge
+    name: sales-all-sales-network

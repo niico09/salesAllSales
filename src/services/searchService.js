@@ -3,18 +3,8 @@ const SteamService = require('./steamService');
 const { STEAM_FILTERS, STEAM_TYPES } = require('../config/steamConstants');
 const { PAGINATION } = require('../config/constants');
 
-/**
- * Service for searching and filtering games
- * @class SearchService
- */
 class SearchService {
-    /**
-     * Search for games with filters and pagination
-     * @param {Object} filters - Filter criteria
-     * @param {number} page - Page number
-     * @param {number} pageSize - Items per page
-     * @returns {Object} Search results with pagination
-     */
+
     async searchGames(filters = {}, page = PAGINATION.DEFAULT_PAGE, pageSize = PAGINATION.DEFAULT_PAGE_SIZE) {
         try {
             console.log('Received filters:', filters); 
@@ -22,7 +12,6 @@ class SearchService {
             const query = this._buildQuery(filters);
             console.log('Built query:', JSON.stringify(query, null, 2)); 
 
-            // Ensure pagination limits
             const validPage = parseInt(page) || PAGINATION.DEFAULT_PAGE;
             const validPageSize = Math.min(parseInt(pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE);
             const skip = (validPage - 1) * validPageSize;
@@ -69,11 +58,6 @@ class SearchService {
         }
     }
 
-    /**
-     * Update game data asynchronously
-     * @param {Array} games - Games to update
-     * @private
-     */
     async _updateGamesDataAsync(games) {
         const currentTime = new Date();
         const TWO_HOURS = 2 * 60 * 60 * 1000;
@@ -102,25 +86,11 @@ class SearchService {
         }
     }
 
-    /**
-     * Check if a game needs update
-     * @param {Object} game - Game to check
-     * @param {Date} currentTime - Current time
-     * @param {number} updateInterval - Update interval in milliseconds
-     * @returns {boolean} True if game needs update
-     * @private
-     */
     _needsUpdate(game, currentTime, updateInterval) {
         if (!game.lastUpdated) return true;
         return (currentTime - new Date(game.lastUpdated)) > updateInterval;
     }
 
-    /**
-     * Check if a game has incomplete data
-     * @param {Object} game - Game to check
-     * @returns {boolean} True if game has incomplete data
-     * @private
-     */
     _isIncomplete(game) {
         return !game.type || 
                !game.developers?.length || 
@@ -130,12 +100,6 @@ class SearchService {
                game.is_free === undefined;
     }
 
-    /**
-     * Build query object from filters
-     * @param {Object} filters - Filter criteria
-     * @returns {Object} MongoDB query object
-     * @private
-     */
     _buildQuery(filters = {}) {
         const query = {
             type: { 
@@ -183,10 +147,6 @@ class SearchService {
         return query;
     }
 
-    /**
-     * Get unique genres from database
-     * @returns {Array} List of unique genres
-     */
     async getUniqueGenres() {
         try {
             const genres = await Game.distinct('genres');
@@ -197,10 +157,6 @@ class SearchService {
         }
     }
 
-    /**
-     * Get unique publishers from database
-     * @returns {Array} List of unique publishers
-     */
     async getUniquePublishers() {
         try {
             const publishers = await Game.distinct('publishers');
@@ -211,10 +167,6 @@ class SearchService {
         }
     }
 
-    /**
-     * Get unique developers from database
-     * @returns {Array} List of unique developers
-     */
     async getUniqueDevelopers() {
         try {
             const developers = await Game.distinct('developers');

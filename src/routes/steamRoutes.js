@@ -4,10 +4,10 @@ const steamController = require('../controllers/steamController');
 
 /**
  * @swagger
- * /steam-games:
+ * /api/steam/steam-games:
  *   get:
- *     summary: Obtiene un listado de juegos de Steam
- *     description: Retorna una lista paginada de juegos de Steam con categorización
+ *     summary: Get a list of Steam games
+ *     description: Returns a paginated list of Steam games with categorization
  *     tags: [Steam]
  *     parameters:
  *       - in: query
@@ -15,17 +15,17 @@ const steamController = require('../controllers/steamController');
  *         schema:
  *           type: integer
  *           default: 1
- *         description: Número de página
+ *         description: Page number
  *       - in: query
  *         name: pageSize
  *         schema:
  *           type: integer
  *           default: 50
  *           maximum: 50
- *         description: Número de elementos por página (máximo 50)
+ *         description: Number of items per page (maximum 50)
  *     responses:
  *       200:
- *         description: Lista de juegos de Steam
+ *         description: List of Steam games
  *         content:
  *           application/json:
  *             schema:
@@ -49,16 +49,16 @@ const steamController = require('../controllers/steamController');
  *                 mongoStats:
  *                   type: object
  *       500:
- *         description: Error del servidor
+ *         description: Server error
  */
 router.get('/steam-games', steamController.getSteamGames);
 
 /**
  * @swagger
- * /game/{appid}:
+ * /api/steam/game/{appid}:
  *   get:
- *     summary: Obtiene detalles de un juego específico
- *     description: Retorna información detallada de un juego, incluyendo datos de Metacritic y recomendaciones. Si el juego no existe en la base de datos o está desactualizado, obtiene la información de la API de Steam.
+ *     summary: Get details of a specific game
+ *     description: Returns detailed information about a game, including Metacritic data and recommendations.
  *     tags: [Steam]
  *     parameters:
  *       - in: path
@@ -66,10 +66,10 @@ router.get('/steam-games', steamController.getSteamGames);
  *         required: true
  *         schema:
  *           type: integer
- *         description: ID de la aplicación en Steam
+ *         description: Steam application ID
  *     responses:
  *       200:
- *         description: Detalles del juego
+ *         description: Game details
  *         content:
  *           application/json:
  *             schema:
@@ -108,52 +108,34 @@ router.get('/steam-games', steamController.getSteamGames);
  *                   type: array
  *                   items:
  *                     type: string
- *                 header_image:
- *                   type: string
- *                 website:
- *                   type: string
- *                 lastUpdated:
- *                   type: string
- *                   format: date-time
- *       400:
- *         description: ID de aplicación inválido
+ *                 price_overview:
+ *                   type: object
+ *                   properties:
+ *                     currency:
+ *                       type: string
+ *                     initial:
+ *                       type: integer
+ *                     final:
+ *                       type: integer
+ *                     discount_percent:
+ *                       type: integer
+ *                     initial_formatted:
+ *                       type: string
+ *                     final_formatted:
+ *                       type: string
  *       404:
- *         description: Juego no encontrado
+ *         description: Game not found
  *       500:
- *         description: Error del servidor
+ *         description: Server error
  */
 router.get('/game/:appid', steamController.getGameDetails);
 
 /**
  * @swagger
- * /check-differences:
+ * /api/steam/stored-games:
  *   get:
- *     summary: Comprueba diferencias entre la API de Steam y la base de datos
- *     description: Retorna estadísticas sobre juegos presentes en Steam pero no en la base de datos y viceversa
- *     tags: [Steam]
- *     responses:
- *       200:
- *         description: Estadísticas de diferencias
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 statistics:
- *                   type: object
- *                 differences:
- *                   type: object
- *       500:
- *         description: Error del servidor
- */
-router.get('/check-differences', steamController.checkDifferences);
-
-/**
- * @swagger
- * /stored-games:
- *   get:
- *     summary: Obtiene juegos almacenados en la base de datos
- *     description: Retorna una lista paginada de juegos almacenados con opciones de filtrado
+ *     summary: Get games stored in the database
+ *     description: Returns a list of games stored in the database with pagination and filtering options
  *     tags: [Steam]
  *     parameters:
  *       - in: query
@@ -161,39 +143,137 @@ router.get('/check-differences', steamController.checkDifferences);
  *         schema:
  *           type: integer
  *           default: 1
- *         description: Número de página
+ *         description: Page number
  *       - in: query
- *         name: pageSize
+ *         name: limit
  *         schema:
  *           type: integer
  *           default: 50
- *           maximum: 50
- *         description: Número de elementos por página (máximo 50)
+ *           maximum: 100
+ *         description: Number of items per page (maximum 100)
  *       - in: query
  *         name: type
  *         schema:
  *           type: string
- *         description: Filtrar por tipo de juego
- *       - in: query
- *         name: withType
- *         schema:
- *           type: boolean
- *         description: Filtrar por presencia de tipo
+ *           enum: [game, dlc, package]
+ *         description: Filter by game type
  *     responses:
  *       200:
- *         description: Lista de juegos almacenados
+ *         description: List of stored games
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 pagination:
- *                   type: object
  *                 games:
  *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Game'
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *                     pages:
+ *                       type: integer
  *       500:
- *         description: Error del servidor
+ *         description: Server error
  */
 router.get('/stored-games', steamController.getStoredGames);
+
+/**
+ * @swagger
+ * /api/steam/check-differences:
+ *   get:
+ *     summary: Check differences between Steam API and database
+ *     description: Compares the games in the Steam API with those in the database and returns statistics
+ *     tags: [Steam]
+ *     responses:
+ *       200:
+ *         description: Differences statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalSteamGames:
+ *                   type: integer
+ *                 totalStoredGames:
+ *                   type: integer
+ *                 missingGames:
+ *                   type: integer
+ *                 newGames:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       appid:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *       500:
+ *         description: Server error
+ */
+router.get('/check-differences', steamController.checkDifferences);
+
+/**
+ * @swagger
+ * /api/steam/sync-new-games:
+ *   post:
+ *     summary: Sync new games from Steam API to database
+ *     description: Fetches new games from Steam API and adds them to the database
+ *     tags: [Steam]
+ *     responses:
+ *       200:
+ *         description: Sync results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 syncedGames:
+ *                   type: integer
+ *                 timeElapsed:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ */
+router.post('/sync-new-games', steamController.syncNewGames);
+
+/**
+ * @swagger
+ * /api/steam/update-all-games:
+ *   post:
+ *     summary: Update all games in the database
+ *     description: Updates all games in the database with the latest information from Steam API
+ *     tags: [Steam]
+ *     responses:
+ *       200:
+ *         description: Update results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 updatedGames:
+ *                   type: integer
+ *                 timeElapsed:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ */
+router.post('/update-all-games', steamController.updateAllGames);
 
 module.exports = router;

@@ -166,11 +166,6 @@ const getGameDetails = async (req, res) => {
                 error: 'ID de aplicación inválido',
                 message: 'El ID de aplicación debe ser un número entero válido'
             });
-            logger.warn(`Intento de acceso con ID de aplicación inválido: ${req.params.appid}`);
-            return res.status(400).json({ 
-                error: 'ID de aplicación inválido',
-                message: 'El ID de aplicación debe ser un número entero válido'
-            });
         }
         
         logger.info(`Fetching details for game with appid: ${appid}`);
@@ -253,8 +248,6 @@ const getGameDetails = async (req, res) => {
                     return res.status(404).json({ 
                         error: 'Juego no encontrado',
                         message: 'No se pudo encontrar información para este juego en la API de Steam',
-                        error: 'Juego no encontrado',
-                        message: 'No se pudo encontrar información para este juego en la API de Steam'
                     });
                 }
             }
@@ -263,10 +256,6 @@ const getGameDetails = async (req, res) => {
         game = await Game.findOne({ appid });
         
         if (!game) {
-            return res.status(404).json({ 
-                error: 'Juego no encontrado',
-                message: 'No se pudo encontrar el juego solicitado en la base de datos'
-            });
             return res.status(404).json({ 
                 error: 'Juego no encontrado',
                 message: 'No se pudo encontrar el juego solicitado en la base de datos'
@@ -289,9 +278,191 @@ const getGameDetails = async (req, res) => {
             error: 'Error al obtener detalles del juego',
             message: 'Se produjo un error al recuperar los detalles del juego solicitado'
         });
+    }
+};
+
+const syncNewGames = async (req, res) => {
+    try {
+        const startTime = Date.now();
+        logger.info('Starting sync of new games from Steam API');
+
+        // Obtener lista de juegos de Steam
+        const response = await axios.get(`https://api.steampowered.com/ISteamApps/GetAppList/v2/?key=${process.env.STEAM_API_KEY}`);
+        
+        const steamGames = response.data.applist.apps.filter(game => 
+            game.name && 
+            game.name.trim() !== '' && 
+            !game.name.toLowerCase().includes('test')
+        );
+
+        // Obtener IDs de juegos existentes en la base de datos
+        const existingAppIds = await Game.distinct('appid');
+        const existingAppIdSet = new Set(existingAppIds);
+        
+        // Filtrar juegos nuevos
+        const newGames = steamGames.filter(game => !existingAppIdSet.has(game.appid));
+        
+        logger.info(`Found ${newGames.length} new games to sync`);
+        
+        // Procesar en lotes para evitar sobrecarga
+        const batchSize = 50;
+        let syncedCount = 0;
+        
+        for (let i = 0; i < newGames.length; i += batchSize) {
+            const batch = newGames.slice(i, i + batchSize);
+            
+            // Crear documentos para inserción masiva
+            const gamesToInsert = batch.map(game => ({
+                appid: game.appid,
+                name: game.name,
+                lastUpdated: new Date()
+            }));
+            
+            // Insertar lote
+            if (gamesToInsert.length > 0) {
+                await Game.insertMany(gamesToInsert, { 
+                    ordered: false,
+                    bypassDocumentValidation: true
+                });
+                syncedCount += gamesToInsert.length;
+                logger.info(`Synced batch of ${gamesToInsert.length} games. Total: ${syncedCount}/${newGames.length}`);
+            }
+        }
+        
+        const timeElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        res.json({
+            success: true,
+            message: `Successfully synced ${syncedCount} new games`,
+            syncedGames: syncedCount,
+            timeElapsed: `${timeElapsed} seconds`
+        });
+    } catch (error) {
+        logger.error(`Error syncing new games: ${error.message}`);
         res.status(500).json({ 
-            error: 'Error al obtener detalles del juego',
-            message: 'Se produjo un error al recuperar los detalles del juego solicitado'
+            success: false,
+            error: 'Error syncing new games',
+            message: error.message
+        });
+    }
+};
+
+const updateAllGames = async (req, res) => {
+    try {
+        const startTime = Date.now();
+        logger.info('Starting update of all games');
+        
+        // Actualizar en lotes ordenados por fecha de última actualización
+        const batchSize = 20;
+        let updatedCount = 0;
+        let hasMore = true;
+        let lastId = null;
+        
+        while (hasMore) {
+            // Consulta para obtener el siguiente lote
+            const query = lastId ? { _id: { $gt: lastId } } : {};
+            
+            const games = await Game.find(query)
+                .sort({ lastUpdated: 1, _id: 1 })
+                .limit(batchSize)
+                .lean();
+            
+            if (games.length === 0) {
+                hasMore = false;
+                break;
+            }
+            
+            // Actualizar el último ID para la próxima iteración
+            lastId = games[games.length - 1]._id;
+            
+            // Actualizar cada juego en el lote
+            for (const game of games) {
+                try {
+                    // Obtener detalles actualizados de Steam
+                    const detailsResponse = await axios.get(
+                        `https://store.steampowered.com/api/appdetails?appids=${game.appid}&cc=us&l=en`
+                    );
+                    
+                    // Si la respuesta es exitosa, actualizar el juego
+                    if (detailsResponse.data[game.appid] && detailsResponse.data[game.appid].success) {
+                        const gameData = detailsResponse.data[game.appid].data;
+                        
+                        // Preparar datos para actualización
+                        const updateData = {
+                            name: gameData.name,
+                            type: gameData.type,
+                            is_free: gameData.is_free,
+                            developers: gameData.developers || [],
+                            publishers: gameData.publishers || [],
+                            genres: gameData.genres ? gameData.genres.map(g => g.description) : [],
+                            lastUpdated: new Date()
+                        };
+                        
+                        // Si hay información de precio, actualizarla y guardar historial
+                        if (gameData.price_overview) {
+                            // Si el precio ha cambiado, añadirlo al historial
+                            if (game.price && JSON.stringify(game.price) !== JSON.stringify(gameData.price_overview)) {
+                                await Game.updateOne(
+                                    { appid: game.appid },
+                                    { 
+                                        $push: { priceHistory: game.price },
+                                        $set: {
+                                            ...updateData,
+                                            price: gameData.price_overview
+                                        }
+                                    }
+                                );
+                            } else {
+                                // Si no ha cambiado, solo actualizar los otros datos
+                                await Game.updateOne(
+                                    { appid: game.appid },
+                                    { 
+                                        $set: {
+                                            ...updateData,
+                                            price: gameData.price_overview
+                                        }
+                                    }
+                                );
+                            }
+                        } else {
+                            // Si no hay información de precio, solo actualizar los otros datos
+                            await Game.updateOne(
+                                { appid: game.appid },
+                                { $set: updateData }
+                            );
+                        }
+                        
+                        updatedCount++;
+                        logger.info(`Updated game: ${game.name} (${game.appid}). Total: ${updatedCount}`);
+                    }
+                    
+                    // Esperar un poco para no sobrecargar la API de Steam
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    
+                } catch (gameError) {
+                    logger.error(`Error updating game ${game.appid}: ${gameError.message}`);
+                    // Continuar con el siguiente juego
+                    continue;
+                }
+            }
+            
+            logger.info(`Processed batch of ${games.length} games. Total updated: ${updatedCount}`);
+        }
+        
+        const timeElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        res.json({
+            success: true,
+            message: `Successfully updated ${updatedCount} games`,
+            updatedGames: updatedCount,
+            timeElapsed: `${timeElapsed} seconds`
+        });
+    } catch (error) {
+        logger.error(`Error updating all games: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            error: 'Error updating all games',
+            message: error.message
         });
     }
 };
@@ -300,5 +471,7 @@ module.exports = {
     getSteamGames,
     checkDifferences,
     getStoredGames,
-    getGameDetails
+    getGameDetails,
+    syncNewGames,
+    updateAllGames
 };

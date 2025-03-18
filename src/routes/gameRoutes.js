@@ -5,68 +5,68 @@ const { PAGINATION } = require('../config/constants');
 
 /**
  * @swagger
- * /games:
+ * /api/games:
  *   get:
- *     summary: Obtiene un listado de juegos con opciones de filtrado
- *     description: Retorna una lista paginada de juegos que coinciden con los criterios de filtrado
+ *     summary: Get a list of games with filtering options
+ *     description: Returns a paginated list of games that match the filtering criteria
  *     tags: [Games]
  *     parameters:
  *       - in: query
  *         name: genre
  *         schema:
  *           type: string
- *         description: Filtrar por género
+ *         description: Filter by genre
  *       - in: query
  *         name: publisher
  *         schema:
  *           type: string
- *         description: Filtrar por editor
+ *         description: Filter by publisher
  *       - in: query
  *         name: developer
  *         schema:
  *           type: string
- *         description: Filtrar por desarrollador
+ *         description: Filter by developer
  *       - in: query
  *         name: initialLetter
  *         schema:
  *           type: string
- *         description: Filtrar por letra inicial del nombre
+ *         description: Filter by initial letter of the name
  *       - in: query
  *         name: discountPercent
  *         schema:
  *           type: number
- *         description: Filtrar por porcentaje de descuento exacto
+ *         description: Filter by exact discount percentage
  *       - in: query
  *         name: minDiscount
  *         schema:
  *           type: number
- *         description: Filtrar por descuento mínimo
+ *         description: Filter by minimum discount
  *       - in: query
  *         name: maxDiscount
  *         schema:
  *           type: number
- *         description: Filtrar por descuento máximo
+ *         description: Filter by maximum discount
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           default: 1
- *         description: Número de página
+ *         description: Page number
  *       - in: query
  *         name: pageSize
  *         schema:
  *           type: integer
  *           default: 25
  *           maximum: 50
- *         description: Número de elementos por página (máximo 50)
+ *         description: Number of items per page (maximum 50)
  *       - in: query
  *         name: includeFilterOptions
  *         schema:
  *           type: boolean
- *         description: Incluir opciones de filtrado en la respuesta
+ *         description: Include filter options in the response
  *     responses:
  *       200:
- *         description: Lista de juegos
+ *         description: List of games
  *         content:
  *           application/json:
  *             schema:
@@ -80,54 +80,46 @@ const { PAGINATION } = require('../config/constants');
  *                   $ref: '#/components/schemas/PaginationResponse'
  *                 filterOptions:
  *                   type: object
- *                   description: Solo presente si includeFilterOptions=true
+ *                   description: Only present if includeFilterOptions=true
  *       500:
- *         description: Error del servidor
+ *         description: Server error
  */
-router.get('/games', async (req, res) => {
-    try {
-        const {
-            genre,
-            publisher,
-            developer,
-            initialLetter,
-            discountPercent,
-            minDiscount,
-            maxDiscount,
-            page = PAGINATION.DEFAULT_PAGE,
-            pageSize = Math.min(parseInt(req.query.pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE)
-        } = req.query;
+router.get('/', async (req, res) => {
+  try {
+    const {
+      genre,
+      publisher,
+      developer,
+      initialLetter,
+      discountPercent,
+      minDiscount,
+      maxDiscount,
+      page = PAGINATION.DEFAULT_PAGE,
+      pageSize = Math.min(
+        parseInt(req.query.pageSize, 10) || PAGINATION.DEFAULT_PAGE_SIZE,
+        PAGINATION.MAX_PAGE_SIZE
+      )
+    } = req.query;
 
-        const filters = {
-            genre,
-            publisher,
-            developer,
-            initialLetter,
-            discountPercent,
-            minDiscount,
-            maxDiscount
-        };
+    const filters = {
+      genre,
+      publisher,
+      developer,
+      initialLetter,
+      discountPercent: discountPercent ? parseInt(discountPercent, 10) : undefined,
+      minDiscount: minDiscount ? parseInt(minDiscount, 10) : undefined,
+      maxDiscount: maxDiscount ? parseInt(maxDiscount, 10) : undefined,
+      isFree: req.query.isFree === 'true'
+    };
 
-        Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
+    const includeFilterOptions = req.query.includeFilterOptions === 'true';
+    const result = await searchService.searchGames(filters, page, pageSize, includeFilterOptions);
 
-        const result = await searchService.searchGames(filters, page, pageSize);
-
-        if (req.query.includeFilterOptions === 'true') {
-            result.filterOptions = {
-                genres: await searchService.getUniqueGenres(),
-                publishers: await searchService.getUniquePublishers(),
-                developers: await searchService.getUniqueDevelopers()
-            };
-        }
-
-        res.json(result);
-    } catch (error) {
-        console.error('Error searching games:', error);
-        res.status(500).json({
-            message: 'Error searching games',
-            error: error.message
-        });
-    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching games:', error);
+    res.status(500).json({ error: 'Error fetching games' });
+  }
 });
 
 module.exports = router;
