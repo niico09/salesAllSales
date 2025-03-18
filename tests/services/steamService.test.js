@@ -12,13 +12,11 @@ jest.mock('../../src/utils/logger', () => ({
 
 describe('SteamService', () => {
   beforeEach(() => {
-    // Clear all mocks before each test
     jest.clearAllMocks();
   });
 
   describe('getGamesList', () => {
     it('should return cached games list if available', async () => {
-      // Mock cache hit
       const mockGames = [{ appid: 1, name: 'Test Game' }];
       SteamService.cache.get.mockReturnValue(mockGames);
 
@@ -30,10 +28,8 @@ describe('SteamService', () => {
     });
 
     it('should fetch games list from API if not cached', async () => {
-      // Mock cache miss
       SteamService.cache.get.mockReturnValue(null);
 
-      // Mock API response
       const mockResponse = {
         data: {
           applist: {

@@ -26,8 +26,6 @@ const blacklistGameSchema = new mongoose.Schema({
   timestamps: true
 });
 
-blacklistGameSchema.index({ appid: 1 }, { unique: true });
-
 const BlacklistGame = mongoose.model('BlacklistGame', blacklistGameSchema);
 
 module.exports = BlacklistGame;

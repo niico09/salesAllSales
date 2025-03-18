@@ -57,7 +57,7 @@ const gameSchema = new mongoose.Schema({
     metacritic: metacriticSchema,
     recommendations: recommendationsSchema,
     priceHistory: [priceSchema],
-    lastUpdated: { type: Date, default: Date.now, index: true }
+    lastUpdated: { type: Date, default: Date.now }
 }, { 
     autoIndex: false,
     timestamps: true
@@ -70,7 +70,8 @@ gameSchema.index({ publishers: 1 });
 gameSchema.index({ developers: 1 });
 gameSchema.index({ 'metacritic.score': 1 });
 gameSchema.index({ lastUpdated: 1 });
-gameSchema.index({ appid: 1 }, { unique: true });
+// Eliminamos este índice duplicado ya que appid ya está definido como único en el esquema
+// gameSchema.index({ appid: 1 }, { unique: true });
 
 gameSchema.statics.createIndexesInBackground = async function() {
     try {

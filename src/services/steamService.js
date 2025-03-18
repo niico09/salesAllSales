@@ -151,22 +151,22 @@ class SteamService {
 
   _processGameData(appid, name, data) {
     const isMainType = STEAM_FILTERS.VALID_TYPES.includes(data.type);
-    const is_free = data.is_free || false;
+    const isFree = data.is_free || false;
 
     const metacritic = this._processMetacriticData(data.metacritic);
     const recommendations = this._processRecommendationsData(data.recommendations);
-    const price = !is_free ? this._processPriceData(data.price_overview) : null;
+    const price = !isFree ? this._processPriceData(data.price_overview) : null;
 
     // Asegurar que required_age sea un número válido
-    let required_age = 0;
+    let requiredAge = 0;
     if (data.required_age !== undefined) {
       if (typeof data.required_age === 'number') {
-        required_age = data.required_age;
+        requiredAge = data.required_age;
       } else if (typeof data.required_age === 'string') {
         // Intentar convertir a número si es posible
         const parsedAge = parseInt(data.required_age, 10);
         if (!Number.isNaN(parsedAge)) {
-          required_age = parsedAge;
+          requiredAge = parsedAge;
         } else {
           // Si contiene JavaScript o no es un número válido, usar 0
           logger.warn(`Invalid required_age value for game ${name} (${appid}): ${data.required_age}`);
@@ -178,9 +178,9 @@ class SteamService {
       appid,
       type: data.type || STEAM_TYPES.UNKNOWN,
       isMainType,
-      is_free,
+      is_free: isFree,
       name: data.name || name,
-      required_age,
+      required_age: requiredAge,
       developers: data.developers || [],
       publishers: data.publishers || [],
       packages: data.packages || [],
@@ -229,9 +229,9 @@ class SteamService {
       currency: priceOverview.currency,
       initial: priceOverview.initial ? priceOverview.initial / 100 : null,
       final: priceOverview.final ? priceOverview.final / 100 : null,
-      discount_percent: priceOverview.discount_percent || 0,
-      initial_formatted: priceOverview.initial_formatted || '',
-      final_formatted: priceOverview.final_formatted || '',
+      discountPercent: priceOverview.discount_percent || 0,
+      initialFormatted: priceOverview.initial_formatted || '',
+      finalFormatted: priceOverview.final_formatted || '',
       lastChecked: new Date()
     };
   }
