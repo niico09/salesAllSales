@@ -14,6 +14,7 @@ class SteamService {
     this.requestDelay = parseInt(process.env.STEAM_API_DELAY || '1000', 10);
     this.maxRetries = parseInt(process.env.STEAM_API_MAX_RETRIES || '3', 10);
     this.retryDelay = parseInt(process.env.STEAM_API_RETRY_DELAY || '2000', 10);
+    this.logger = logger;
 
     this.api = axios.create({
       timeout: 10000,
@@ -43,15 +44,20 @@ class SteamService {
         config.retryCount += 1;
 
         const delay = this.retryDelay * 2 ** (config.retryCount - 1);
-        logger.warn(`Retrying request to ${config.url} (attempt ${config.retryCount}/${this.maxRetries}) after ${delay}ms`);
+        this.logger.warn(
+          `Retrying request to ${config.url} (attempt ${config.retryCount}/${this.maxRetries}) after ${delay}ms`
+        );
 
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await new Promise((resolve) => {
+          setTimeout(resolve, delay);
+        });
         return this.api(config);
       }
     );
   }
 
   withRetry(config) {
+    this.logger.debug(`Configurando retry para ${config.url}`);
     return {
       ...config,
       retry: true,
@@ -60,7 +66,9 @@ class SteamService {
   }
 
   async delay() {
-    return new Promise((resolve) => setTimeout(resolve, this.requestDelay));
+    return new Promise((resolve) => {
+      setTimeout(resolve, this.requestDelay);
+    });
   }
 
   async getGamesList() {
@@ -68,12 +76,12 @@ class SteamService {
 
     const cachedGames = this.cache.get(cacheKey);
     if (cachedGames) {
-      logger.info('Retrieved games list from cache');
+      this.logger.info('Retrieved games list from cache');
       return cachedGames;
     }
 
     try {
-      logger.info('Fetching games list from Steam API');
+      this.logger.info('Fetching games list from Steam API');
       const response = await this.api.get(
         `https://api.steampowered.com/ISteamApps/GetAppList/v2/?key=${process.env.STEAM_API_KEY}`,
         this.withRetry({})
@@ -89,18 +97,18 @@ class SteamService {
                 && !game.name.toLowerCase().includes('demo'));
 
       this.cache.set(cacheKey, filteredGames);
-      logger.info(`Retrieved ${filteredGames.length} games from Steam API`);
+      this.logger.info(`Retrieved ${filteredGames.length} games from Steam API`);
 
       return filteredGames;
     } catch (error) {
-      logger.error(`Error fetching games list: ${error.message}`);
+      this.logger.error(`Error fetching games list: ${error.message}`);
       throw new Error(`Failed to fetch games list: ${error.message}`);
     }
   }
 
   async getGameDetails(appid, name) {
     if (!appid) {
-      logger.error('Invalid appid provided to getGameDetails');
+      this.logger.error('Invalid appid provided to getGameDetails');
       return null;
     }
 
@@ -108,14 +116,14 @@ class SteamService {
 
     const cachedDetails = this.cache.get(cacheKey);
     if (cachedDetails) {
-      logger.info(`Retrieved details for game ${appid} from cache`);
+      this.logger.info(`Retrieved details for game ${appid} from cache`);
       return cachedDetails;
     }
 
     try {
       await this.delay();
 
-      logger.info(`Fetching details for game ${name || appid} (${appid})`);
+      this.logger.info(`Fetching details for game ${name || appid} (${appid})`);
       const response = await this.api.get(
         `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us`,
         this.withRetry({})
@@ -128,7 +136,7 @@ class SteamService {
       const gameData = response.data[appid];
 
       if (!gameData.success) {
-        logger.warn(`No data available for game ${name || appid} (${appid})`);
+        this.logger.warn(`No data available for game ${name || appid} (${appid})`);
         return null;
       }
 
@@ -144,7 +152,7 @@ class SteamService {
 
       return processedData;
     } catch (error) {
-      logger.error(`Error getting details for game ${appid}: ${error.message}`);
+      this.logger.error(`Error getting details for game ${appid}: ${error.message}`);
       return null;
     }
   }
@@ -157,19 +165,16 @@ class SteamService {
     const recommendations = this._processRecommendationsData(data.recommendations);
     const price = !isFree ? this._processPriceData(data.price_overview) : null;
 
-    // Asegurar que required_age sea un número válido
     let requiredAge = 0;
     if (data.required_age !== undefined) {
       if (typeof data.required_age === 'number') {
         requiredAge = data.required_age;
       } else if (typeof data.required_age === 'string') {
-        // Intentar convertir a número si es posible
         const parsedAge = parseInt(data.required_age, 10);
         if (!Number.isNaN(parsedAge)) {
           requiredAge = parsedAge;
         } else {
-          // Si contiene JavaScript o no es un número válido, usar 0
-          logger.warn(`Invalid required_age value for game ${name} (${appid}): ${data.required_age}`);
+          this.logger.warn(`Invalid required_age value for game ${name} (${appid}): ${data.required_age}`);
         }
       }
     }
@@ -197,6 +202,7 @@ class SteamService {
   }
 
   _processMetacriticData(metacriticData) {
+    this.logger.debug('Procesando datos de Metacritic');
     if (!metacriticData) {
       return {
         score: null,
@@ -211,6 +217,7 @@ class SteamService {
   }
 
   _processRecommendationsData(recommendationsData) {
+    this.logger.debug('Procesando datos de recomendaciones');
     if (!recommendationsData) {
       return {
         total: 0
@@ -223,6 +230,7 @@ class SteamService {
   }
 
   _processPriceData(priceOverview) {
+    this.logger.debug('Procesando datos de precio');
     if (!priceOverview) return null;
 
     return {
@@ -238,7 +246,7 @@ class SteamService {
 
   clearCache() {
     this.cache.flushAll();
-    logger.info('Steam service cache cleared');
+    this.logger.info('Steam service cache cleared');
   }
 }
 

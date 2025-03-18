@@ -70,8 +70,6 @@ gameSchema.index({ publishers: 1 });
 gameSchema.index({ developers: 1 });
 gameSchema.index({ 'metacritic.score': 1 });
 gameSchema.index({ lastUpdated: 1 });
-// Eliminamos este índice duplicado ya que appid ya está definido como único en el esquema
-// gameSchema.index({ appid: 1 }, { unique: true });
 
 gameSchema.statics.createIndexesInBackground = async function() {
     try {

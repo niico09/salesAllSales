@@ -61,51 +61,65 @@ app.use((req, res, next) => {
 
 app.use((err, req, res, next) => {
   const statusCode = err.statusCode || 500;
-  
+
   logger.error(`Server error: ${err.message}`);
   logger.error(err.stack);
-  
+
   res.status(statusCode).json({
     status: 'error',
-    message: process.env.NODE_ENV === 'production' ? 
-      'An unexpected error occurred' : 
-      err.message,
+    message: process.env.NODE_ENV === 'production'
+      ? 'An unexpected error occurred'
+      : err.message,
     ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
   });
 });
 
-const server = app.listen(port, () => {
-  logger.info(`Server running on port ${port}`);
-  
-  Game.createIndexesInBackground();
-  
-  updateService.startUpdateCron();
-});
-
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+let server;
 
 function gracefulShutdown() {
   logger.info('Received shutdown signal, starting graceful shutdown');
-  
-  server.close(() => {
-    logger.info('HTTP server closed');
-    
+
+  if (server) {
+    server.close(() => {
+      logger.info('HTTP server closed');
+
+      connectDB.disconnect()
+        .then(() => {
+          logger.info('Database connection closed');
+          process.exit(0);
+        })
+        .catch((err) => {
+          logger.error(`Error during database disconnection: ${err.message}`);
+          process.exit(1);
+        });
+    });
+  } else {
     connectDB.disconnect()
       .then(() => {
         logger.info('Database connection closed');
         process.exit(0);
       })
-      .catch(err => {
+      .catch((err) => {
         logger.error(`Error during database disconnection: ${err.message}`);
         process.exit(1);
       });
-  });
-  
+  }
+
   setTimeout(() => {
     logger.error('Graceful shutdown timed out, forcing exit');
     process.exit(1);
   }, 30000);
 }
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+server = app.listen(port, () => {
+  logger.info(`Server running on port ${port}`);
+
+  Game.createIndexesInBackground();
+
+  updateService.startUpdateCronJob();
+});
 
 module.exports = app;

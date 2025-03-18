@@ -9,7 +9,7 @@ const gameSchema = new mongoose.Schema({
     type: {
         type: String,
         enum: ['game', 'games', 'dlc', 'package'],
-        required: false // Cambiado a false para permitir guardado inicial sin type
+        required: false
     },
     name: {
         type: String,

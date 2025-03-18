@@ -1,7 +1,6 @@
 const axios = require('axios');
 const SteamService = require('../../src/services/steamService');
 
-// Mock dependencies
 jest.mock('axios');
 jest.mock('node-cache');
 jest.mock('../../src/utils/logger', () => ({
@@ -48,7 +47,7 @@ describe('SteamService', () => {
       expect(SteamService.cache.get).toHaveBeenCalledWith('steam_games_list');
       expect(axios.get).toHaveBeenCalled();
       expect(SteamService.cache.set).toHaveBeenCalled();
-      expect(result).toHaveLength(2); // Should filter out the demo
+      expect(result).toHaveLength(2);
       expect(result).toEqual([
         { appid: 1, name: 'Test Game' },
         { appid: 3, name: 'Test App' }
@@ -56,10 +55,7 @@ describe('SteamService', () => {
     });
 
     it('should handle API errors', async () => {
-      // Mock cache miss
       SteamService.cache.get.mockReturnValue(null);
-
-      // Mock API error
       const error = new Error('API error');
       axios.get.mockRejectedValue(error);
 
@@ -88,10 +84,8 @@ describe('SteamService', () => {
     it('should fetch game details from API if not cached', async () => {
       const appid = 123;
       const name = 'Test Game';
-      // Mock cache miss
       SteamService.cache.get.mockReturnValue(null);
 
-      // Mock API response
       const mockResponse = {
         data: {
           [appid]: {
@@ -128,10 +122,8 @@ describe('SteamService', () => {
 
     it('should handle API errors', async () => {
       const appid = 123;
-      // Mock cache miss
       SteamService.cache.get.mockReturnValue(null);
 
-      // Mock API error
       const error = new Error('API error');
       axios.get.mockRejectedValue(error);
 
