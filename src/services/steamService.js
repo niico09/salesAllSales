@@ -15,18 +15,78 @@ class SteamService {
     this.maxRetries = parseInt(process.env.STEAM_API_MAX_RETRIES || '3', 10);
     this.retryDelay = parseInt(process.env.STEAM_API_RETRY_DELAY || '2000', 10);
     this.logger = logger;
+    this.lastRequestTime = 0;
+    this.storeApiRateLimit = parseInt(process.env.STEAM_STORE_API_RATE_LIMIT || '1500', 10);
+    this.requestQueue = [];
+    this.isProcessingQueue = false;
+    this.consecutiveRateLimitErrors = 0;
+    this.baseRateLimit = parseInt(process.env.STEAM_STORE_API_RATE_LIMIT || '1500', 10);
+    this.maxRateLimit = 30000;
+    this.cooldownPeriod = 0;
+    this.lastRateLimitErrorTime = 0;
 
     this.api = axios.create({
-      timeout: 10000,
+      timeout: 15000,
       headers: {
-        'User-Agent': 'SalesAllSales/1.0.0'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+        'Accept-Language': 'en-US,en;q=0.9',
+        Accept: 'application/json, text/plain, */*',
+        Connection: 'keep-alive'
       }
     });
 
     this.api.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        if (this.consecutiveRateLimitErrors > 0 && Date.now() - this.lastRateLimitErrorTime > 60000) {
+          this.consecutiveRateLimitErrors = Math.max(0, this.consecutiveRateLimitErrors - 1);
+          this.adjustRateLimit();
+          this.logger.info(`Reducing rate limit to ${this.storeApiRateLimit}ms after successful request`);
+        }
+        return response;
+      },
       async (error) => {
         const { config, response } = error;
+
+        if (response && response.status === 429) {
+          this.lastRateLimitErrorTime = Date.now();
+          this.consecutiveRateLimitErrors += 1;
+          this.adjustRateLimit();
+          
+          if (this.consecutiveRateLimitErrors >= 5) {
+            const cooldownMinutes = Math.min(5, Math.floor(this.consecutiveRateLimitErrors / 5));
+            this.cooldownPeriod = 60000 * cooldownMinutes;
+            this.logger.warn(
+              `Too many rate limit errors (${this.consecutiveRateLimitErrors}). Cooldown: ${cooldownMinutes} min`
+            );
+            await this.sleep(this.cooldownPeriod);
+            this.cooldownPeriod = 0;
+          }
+          
+          this.logger.warn(
+            `Rate limit exceeded (429). Limit: ${this.storeApiRateLimit}ms. Errors: ${this.consecutiveRateLimitErrors}`
+          );
+
+          if (!config || !config.retry) {
+            return Promise.reject(error);
+          }
+
+          if (config.retryCount >= this.maxRetries) {
+            return Promise.reject(
+              new Error(`Maximum retries (${this.maxRetries}) exceeded due to rate limiting`)
+            );
+          }
+
+          config.retryCount = config.retryCount || 0;
+          config.retryCount += 1;
+
+          const delay = this.retryDelay * (8 ** (config.retryCount - 1));
+          this.logger.warn(
+            `Retrying rate-limited request (${config.retryCount}/${this.maxRetries}) after ${delay}ms`
+          );
+
+          await this.sleep(delay);
+          return this.api(config);
+        }
 
         if (response && (response.status === 404 || response.status === 403)) {
           return Promise.reject(error);
@@ -56,6 +116,14 @@ class SteamService {
     );
   }
 
+  adjustRateLimit() {
+    const multiplier = Math.min(20, 2 ** this.consecutiveRateLimitErrors);
+    this.storeApiRateLimit = this.baseRateLimit * multiplier;
+    if (this.storeApiRateLimit > this.maxRateLimit) {
+      this.storeApiRateLimit = this.maxRateLimit;
+    }
+  }
+
   withRetry(config) {
     this.logger.debug(`Configurando retry para ${config.url}`);
     return {
@@ -68,6 +136,68 @@ class SteamService {
   async delay() {
     return new Promise((resolve) => {
       setTimeout(resolve, this.requestDelay);
+    });
+  }
+
+  async enforceRateLimit() {
+    const now = Date.now();
+    const timeElapsed = now - this.lastRequestTime;
+
+    if (timeElapsed < this.storeApiRateLimit) {
+      const waitTime = this.storeApiRateLimit - timeElapsed;
+      this.logger.debug(
+        `Rate limit: Waiting ${waitTime}ms before next request (current limit: ${this.storeApiRateLimit}ms)`
+      );
+      await this.sleep(waitTime);
+    }
+
+    this.lastRequestTime = Date.now();
+  }
+
+  async sleep(ms) {
+    this.logger.debug(`Sleeping for ${ms}ms to respect rate limits`);
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  async processRequestQueue() {
+    if (this.isProcessingQueue) return;
+
+    this.isProcessingQueue = true;
+
+    const processItem = async () => {
+      if (this.requestQueue.length === 0) {
+        this.isProcessingQueue = false;
+        return;
+      }
+
+      const { config, resolve, reject } = this.requestQueue.shift();
+
+      try {
+        await this.enforceRateLimit();
+        const response = await this.api(config);
+        resolve(response);
+      } catch (error) {
+        reject(error);
+      }
+
+      await processItem();
+    };
+
+    await processItem();
+  }
+
+  startQueueProcessing() {
+    this.processRequestQueue().catch((err) => {
+      this.logger.error(`Error processing request queue: ${err.message}`);
+    });
+  }
+
+  queueRequest(config) {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({ config, resolve, reject });
+      this.startQueueProcessing();
     });
   }
 
@@ -120,13 +250,21 @@ class SteamService {
       return cachedDetails;
     }
 
+    if (this.cooldownPeriod > 0) {
+      this.logger.info('In cooldown period. Waiting before making new requests.');
+      await this.sleep(5000);
+    }
+
     try {
       await this.delay();
 
       this.logger.info(`Fetching details for game ${name || appid} (${appid})`);
-      const response = await this.api.get(
-        `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us`,
-        this.withRetry({})
+
+      const response = await this.queueRequest(
+        this.withRetry({
+          url: `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us`,
+          method: 'GET'
+        })
       );
 
       if (!response.data || !response.data[appid]) {
@@ -136,8 +274,8 @@ class SteamService {
       const gameData = response.data[appid];
 
       if (!gameData.success) {
-        this.logger.warn(`No data available for game ${name || appid} (${appid})`);
-        return null;
+        this.logger.warn(`No data available for game ${name || appid} (${appid}), success: false`);
+        return { blacklist: true, reason: 'success_false' };
       }
 
       const { data } = gameData;

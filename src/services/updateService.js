@@ -14,9 +14,15 @@ class UpdateService {
   async updateGameDetails(game) {
     try {
       const updatedGameData = await SteamService.getGameDetails(game.appid, game.name);
+      
+      if (updatedGameData && updatedGameData.blacklist) {
+        this.logger.warn(`Game ${game.name} (${game.appid}) returned success: false. Adding to blacklist.`);
+        await this.addToBlacklist(game.appid, game.name);
+        return null;
+      }
+      
       if (!updatedGameData) {
         this.logger.warn(`No data available for game ${game.name} (${game.appid})`);
-        await this.addToBlacklist(game.appid, game.name);
         return null;
       }
 
@@ -155,8 +161,15 @@ class UpdateService {
       const processGameDetails = async (game) => {
         try {
           const gameDetails = await SteamService.getGameDetails(game.appid, game.name);
-          if (!gameDetails) {
+
+          if (gameDetails && gameDetails.blacklist) {
+            this.logger.warn(`Game ${game.name} (${game.appid}) returned success: false. Adding to blacklist.`);
             await this.addToBlacklist(game.appid, game.name);
+            return null;
+          }
+
+          if (!gameDetails) {
+            this.logger.warn(`No data available for game ${game.name} (${game.appid}) but not adding to blacklist`);
             return null;
           }
 
